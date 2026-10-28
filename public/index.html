@@ -294,7 +294,8 @@
     page-break-inside: avoid !important;
   }
 }
-  </style>
+
+</style>
 </head>
 <body>
 
@@ -308,11 +309,11 @@
       <form id="loginForm">
         <div class="form-floating mb-3 text-start">
           <input type="text" class="form-control" id="loginUsername" placeholder="Username" required>
-          <label for="loginUsername"><i class="bi bi-person me-1"></i> ชื่อผู้ใช้งาน (Username)</label>
+          <label for="loginUsername"><i class="bi bi-person me-1"></i> Username</label>
         </div>
         <div class="form-floating mb-3 text-start">
           <input type="password" class="form-control" id="loginPassword" placeholder="Password" required>
-          <label for="loginPassword"><i class="bi bi-lock me-1"></i> รหัสผ่าน (Password)</label>
+          <label for="loginPassword"><i class="bi bi-lock me-1"></i> Password</label>
         </div>
         
         <button type="submit" class="btn btn-primary w-100 py-2 fw-bold shadow-sm" style="background-color: var(--sb-primary); border: none;">
@@ -2031,7 +2032,8 @@
   <script src="https://npmcdn.com/flatpickr/dist/l10n/th.js"></script>
 
   <script>
-    // ==================== GLOBAL VARIABLES ====================
+
+   // ==================== GLOBAL VARIABLES ====================
     let currentUser = null;
     let rawSalesData = [];
     let dataTableInstance = null;
@@ -2063,32 +2065,65 @@
       "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
     ];
 
-    const IS_DEV = false;
+    const IS_DEV = true;
 
-    // ==================== DOM LOADED INITIALIZATION ====================
+            // ระบุ URL ของ Web App ที่ได้จากการ Deploy ใน Google Apps Script
+    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwX3A3AF_vflDvcWbf_DiFq5QIGa0ViRK4Gu-3VB9KnvQ0v3KGvc-Wt-PUwLobSmZPjKg/exec";
+
+    /**
+     * ฟังก์ชันกลางสำหรับเรียกใช้ฟังก์ชันใน code.gs ผ่าน HTTP POST
+     * @param {string} action ชื่อฟังก์ชันใน code.gs
+     * @param {Array} args อาร์กิวเมนต์ที่ต้องการส่งไป
+     */
+    async function callGasApi(action, args = []) {
+      try {
+        const response = await fetch(GAS_WEB_APP_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/plain;charset=utf-8" // ใช้ text/plain เพื่อเลี่ยง CORS Preflight Options
+          },
+          body: JSON.stringify({
+            action: action,
+            args: args
+          })
+        });
+        
+        const result = await response.json();
+        return result;
+      } catch (error) {
+        console.error(`Error calling ${action}:`, error);
+        return { success: false, message: error.toString() };
+      }
+    }
+
+// ==================== DOM LOADED INITIALIZATION ====================
     document.addEventListener("DOMContentLoaded", function () {
-      initFlatpickr();
-      initAllMonthYearFilters();
-      initRcpFilters();
+      // 1. เรียกฟังก์ชันเริ่มต้นแบบปลอดภัย (ใช้ try...catch ป้องกันสคริปต์หยุดทำงาน)
+      try {
+        if (typeof initFlatpickr === 'function') initFlatpickr();
+        if (typeof initAllMonthYearFilters === 'function') initAllMonthYearFilters();
+        if (typeof initRcpFilters === 'function') initRcpFilters();
+      } catch (err) {
+        console.warn("⚠️ เกิดข้อผิดพลาดในการตั้งค่าปฏิทิน/ฟิลเตอร์เริ่มต้น:", err);
+      }
 
       // ตั้งค่าวันที่ปัจจุบันสำหรับฟอร์มบันทึกค่าใช้จ่าย
       const today = new Date().toISOString().split('T')[0];
-      if (document.getElementById('expenseDate')) {
-        document.getElementById('expenseDate').value = today;
+      const expenseDateEl = document.getElementById('expenseDate');
+      if (expenseDateEl) {
+        expenseDateEl.value = today;
       }
 
       // ตั้งค่าเริ่มต้นเดือนและ พ.ศ. ปัจจุบันสำหรับระบบบันทึกการชำระเงินและการโอนจ่าย
       const currentMonth = ("0" + (new Date().getMonth() + 1)).slice(-2);
       const currentYearBE = new Date().getFullYear() + 543;
 
-      if (document.getElementById('pmtFilterMonth')) {
-        document.getElementById('pmtFilterMonth').value = currentMonth;
-      }
-      if (document.getElementById('pmtFilterYear')) {
-        document.getElementById('pmtFilterYear').value = String(currentYearBE);
-      }
+      const pmtMonthEl = document.getElementById('pmtFilterMonth');
+      const pmtYearEl = document.getElementById('pmtFilterYear');
+      if (pmtMonthEl) pmtMonthEl.value = currentMonth;
+      if (pmtYearEl) pmtYearEl.value = String(currentYearBE);
 
-      // โหมด DEV บายพาสระบบ Login
+      // 2. โหมด DEV บายพาสระบบ Login (ทำงานทันทีไม่โดนบล็อก)
       if (typeof IS_DEV !== 'undefined' && IS_DEV) {
         currentUser = { username: 'dev_user', name: 'Developer (Dev Mode)', role: 'admin' };
         const loginScreen = document.getElementById('loginScreen');
@@ -2099,68 +2134,93 @@
         if (nameEl) nameEl.innerText = currentUser.name;
         if (roleEl) roleEl.innerText = 'ผู้ดูแลระบบ (DEV)';
 
-        showModule('mainMenuSection');
+        if (typeof showModule === 'function') {
+          showModule('mainMenuSection');
+        }
       }
 
-    });
+      // 3. ย้าย Login Form Listener เข้ามาข้างใน DOMContentLoaded เพื่อป้องกัน null error
+      const loginFormEl = document.getElementById('loginForm');
+      if (loginFormEl) {
+        loginFormEl.addEventListener('submit', function (e) {
+          e.preventDefault();
+          const userVal = document.getElementById('loginUsername')?.value.trim() || '';
+          const passVal = document.getElementById('loginPassword')?.value.trim() || '';
 
-    // ==================== LOGIN & LOGOUT SYSTEM ====================
-    document.getElementById('loginForm').addEventListener('submit', function (e) {
-      e.preventDefault();
-      const userVal = document.getElementById('loginUsername').value.trim();
-      const passVal = document.getElementById('loginPassword').value.trim();
-
-      Swal.fire({ title: 'กำลังตรวจสอบ...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-
-      google.script.run
-        .withSuccessHandler(function(res) {
-          Swal.close();
-          if (res.success) {
-            currentUser = res.user;
-            document.getElementById('loginScreen').style.display = 'none';
-            document.getElementById('userDisplayName').innerText = currentUser.name || currentUser.username;
-            document.getElementById('userRoleBadge').innerText = currentUser.role === 'admin' ? 'ผู้ดูแลระบบ' : 'พนักงานขาย';
-            showModule('mainMenuSection');
-          } else {
-            Swal.fire('เข้าสู่ระบบไม่สำเร็จ', res.message, 'error');
+          if (typeof Swal !== 'undefined') {
+            Swal.fire({ title: 'กำลังตรวจสอบ...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
           }
-        })
-        .withFailureHandler(function(err) {
-          Swal.fire('เกิดข้อผิดพลาดจาก Server', err.message || err.toString(), 'error');
-        })
-        .checkLogin(userVal, passVal);
+
+          if (typeof google !== 'undefined' && google.script && google.script.run) {
+            google.script.run
+              .withSuccessHandler(function(res) {
+                if (typeof Swal !== 'undefined') Swal.close();
+                if (res && res.success) {
+                  currentUser = res.user;
+                  const loginScr = document.getElementById('loginScreen');
+                  if (loginScr) loginScr.style.display = 'none';
+                  
+                  const nameElem = document.getElementById('userDisplayName');
+                  const roleElem = document.getElementById('userRoleBadge');
+                  if (nameElem) nameElem.innerText = currentUser.name || currentUser.username;
+                  if (roleElem) roleElem.innerText = currentUser.role === 'admin' ? 'ผู้ดูแลระบบ' : 'พนักงานขาย';
+                  
+                  if (typeof showModule === 'function') showModule('mainMenuSection');
+                } else {
+                  if (typeof Swal !== 'undefined') Swal.fire('เข้าสู่ระบบไม่สำเร็จ', res ? res.message : 'เกิดข้อผิดพลาด', 'error');
+                }
+              })
+              .withFailureHandler(function(err) {
+                if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาดจาก Server', err.message || err.toString(), 'error');
+              })
+              .checkLogin(userVal, passVal);
+          }
+        });
+      }
     });
 
+    // ==================== LOGOUT SYSTEM ====================
     function logout() {
+      if (typeof Swal === 'undefined') return;
+      
       Swal.fire({ title: 'ออกจากระบบ?', icon: 'question', showCancelButton: true, confirmButtonText: 'ตกลง', cancelButtonText: 'ยกเลิก' })
         .then((res) => {
           if (res.isConfirmed) {
             currentUser = null;
-            document.getElementById('mainMenuSection').style.display = 'none';
-            document.getElementById('salesModuleSection').style.display = 'none';
-            if (document.getElementById('expenseModuleSection')) document.getElementById('expenseModuleSection').style.display = 'none';
-            if (document.getElementById('billingModuleSection')) document.getElementById('billingModuleSection').style.display = 'none';
-            document.getElementById('loginScreen').style.display = 'flex';
-            document.getElementById('loginForm').reset();
+            const sections = ['mainMenuSection', 'salesModuleSection', 'expenseModuleSection', 'billingModuleSection'];
+            sections.forEach(id => {
+              const el = document.getElementById(id);
+              if (el) el.style.display = 'none';
+            });
+            
+            const loginScr = document.getElementById('loginScreen');
+            if (loginScr) loginScr.style.display = 'flex';
+            
+            const loginFrm = document.getElementById('loginForm');
+            if (loginFrm) loginFrm.reset();
           }
         });
     }
 
     // ==================== FLATPICKR DATEPICKER ====================
     function initFlatpickr() {
-      fp = flatpickr("#saleDate", {
-        locale: "th",
-        dateFormat: "d/m/Y",
-        defaultDate: new Date(),
-        disableMobile: "true",
-        onReady: function(selectedDates, dateStr, instance) {
-          updateDisplayToBE(instance);
-        },
-        onChange: function(selectedDates, dateStr, instance) {
-          updateDisplayToBE(instance);
-          updateSaleNoPreview();
-        }
-      });
+      const saleDateEl = document.getElementById('saleDate');
+      // เช็กว่ามี Element #saleDate ในหน้าเว็บหรือไม่ก่อนเรียก Flatpickr
+      if (saleDateEl) {
+        fp = flatpickr(saleDateEl, {
+          locale: "th",
+          dateFormat: "d/m/Y",
+          defaultDate: new Date(),
+          disableMobile: true, // ใช้ boolean true
+          onReady: function(selectedDates, dateStr, instance) {
+            if (typeof updateDisplayToBE === 'function') updateDisplayToBE(instance);
+          },
+          onChange: function(selectedDates, dateStr, instance) {
+            if (typeof updateDisplayToBE === 'function') updateDisplayToBE(instance);
+            if (typeof updateSaleNoPreview === 'function') updateSaleNoPreview();
+          }
+        });
+      }
 
       const btnCal = document.getElementById('btnCalendar');
       if (btnCal) {
@@ -3304,8 +3364,11 @@ function showModule(sectionId) {
     }
 
     function initAllMonthYearFilters() {
-      setupMonthYearDropdowns('filterStartMonth', 'filterStartYear', 'filterEndMonth', 'filterEndYear');
-      setupMonthYearDropdowns('filterExpStartMonth', 'filterExpStartYear', 'filterExpEndMonth', 'filterExpEndYear');
+      // ป้องกัน Error กรณีหาฟังก์ชัน setupMonthYearDropdowns ไม่เจอ
+      if (typeof setupMonthYearDropdowns === 'function') {
+        setupMonthYearDropdowns('filterStartMonth', 'filterStartYear', 'filterEndMonth', 'filterEndYear');
+        setupMonthYearDropdowns('filterExpStartMonth', 'filterExpStartYear', 'filterExpEndMonth', 'filterExpEndYear');
+      }
     }
 
     function parseRawNum(valStr) {
@@ -4143,6 +4206,7 @@ function previewClaimNote() {
 }
 
 // 9. ฟังก์ชันสั่งพิมพ์เอกสารใบตั้งเบิก (เพิ่มเข้ามาใหม่เพื่อแก้ปัญหา ReferenceError)
+// 9. ฟังก์ชันสั่งพิมพ์เอกสารใบตั้งเบิกค่าใช้จ่าย
 function printClaimDocument() {
   const printDocEl = document.getElementById('printableClaimDocument');
   if (!printDocEl) {
@@ -4174,7 +4238,8 @@ function printClaimDocument() {
     </head>
     <body>
       ${printDocEl.outerHTML}
-      <script>
+      <!-- ✅ ต้องใส่ \ นำหน้าทั้ง <\script> และ <\/script> -->
+      <\script>
         window.onload = function() {
           setTimeout(function() {
             window.print();
@@ -4251,8 +4316,6 @@ function confirmAndIssueClaim() {
     }
   });
 }
-
-// ==================== OIL STOCK CLIENT SYSTEM ====================
 
 // ==================== OIL STOCK CLIENT SYSTEM ===================
 // ==================== OIL STOCK CLIENT SYSTEM ====================
@@ -5364,19 +5427,24 @@ function generateBatchReceipts() {
 function initRcpFilters() {
   var now = new Date();
   
-  // 1. ดึงเดือนปัจจุบัน (01 - 12)
-  var currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+  // 1. ดึงเดือนปัจจุบัน
+  var monthNum = now.getMonth() + 1;
+  var currentMonthPadded = String(monthNum).padStart(2, '0'); // "01", "02"
+  var currentMonthRaw = String(monthNum);                     // "1", "2"
   
-  // 2. ดึงปี พ.ศ. ปัจจุบัน (เช่น ค.ศ. 2026 + 543 = พ.ศ. 2569)
+  // 2. ดึงปี พ.ศ. ปัจจุบัน
   var currentYearBE = String(now.getFullYear() + 543);
 
-  // 3. กำหนดค่าลง Dropdown เดือน
+  // 3. กำหนดค่าลง Dropdown เดือน (รองรับทั้งแบบมี 0 และไม่มี 0 นำหน้า)
   var monthSelect = document.getElementById("rcpFilterMonth");
   if (monthSelect) {
-    monthSelect.value = currentMonth;
+    var hasPaddedOption = Array.from(monthSelect.options).some(function(opt) {
+      return opt.value === currentMonthPadded;
+    });
+    monthSelect.value = hasPaddedOption ? currentMonthPadded : currentMonthRaw;
   }
 
-  // 4. กำหนดค่าลง Dropdown ปี พ.ศ. (ถ้าปีปัจจุบันยังไม่มีในตัวเลือก จะเพิ่ม <option> ให้อัตโนมัติ)
+  // 4. กำหนดค่าลง Dropdown ปี พ.ศ.
   var yearSelect = document.getElementById("rcpFilterYear");
   if (yearSelect) {
     var optionExists = Array.from(yearSelect.options).some(function(opt) {
@@ -5391,11 +5459,6 @@ function initRcpFilters() {
     }
 
     yearSelect.value = currentYearBE;
-  }
-
-  // 5. (Optional) เรียกโหลดข้อมูลตั้งต้นทันที
-  if (typeof loadUnreceiptedData === 'function') {
-    loadUnreceiptedData();
   }
 }
 
