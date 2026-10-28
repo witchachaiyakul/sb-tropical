@@ -1,0 +1,17 @@
+{
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "redirects": [
+      {
+        "source": "/",
+        "destination": "https://script.google.com/macros/s/AKfycbyRrhstELrhTswilkNP1vJUKsEsEjF5nZMuJ1jvyi5fEXZD1QvwprRQteCRHv-1MIeJbg/exec",
+        "type": 302
+      }
+    ]
+  }
+}
