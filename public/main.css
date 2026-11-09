@@ -1,0 +1,281 @@
+    :root {
+      --sb-primary: #005f73;
+      --sb-secondary: #0a9396;
+      --sb-accent: #94d2bd;
+      --sb-cash: #2a9d8f;
+      --sb-credit: #e76f51;
+      --sb-dark: #1d2d44;
+    }
+    body {
+      font-family: 'Sarabun', sans-serif;
+      background-color: #f0f4f8;
+      color: #333;
+    }
+
+    /* Navbar */
+    .navbar-sb {
+      background: linear-gradient(135deg, var(--sb-primary), var(--sb-secondary));
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    /* Login Screen Overlay */
+    #loginScreen {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      background: linear-gradient(135deg, rgba(0, 95, 115, 0.95), rgba(10, 147, 150, 0.95));
+      z-index: 1000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .login-box {
+      width: 100%;
+      max-width: 400px;
+      padding: 35px;
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+    }
+
+    /* SweetAlert fix layer */
+    .swal2-container {
+      z-index: 99999 !important;
+    }
+
+    /* Header Banner */
+    .header-banner {
+      background: linear-gradient(135deg, var(--sb-primary), var(--sb-secondary));
+      color: white;
+      padding: 35px 20px;
+      text-align: center;
+      border-radius: 0 0 25px 25px;
+      margin-bottom: 30px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+
+    /* Cards & Containers */
+    .sb-card {
+      border: none;
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+      background: white;
+    }
+
+    /* Menu Card Styles */
+    .menu-card {
+      transition: all 0.3s ease;
+      cursor: pointer;
+      border: none;
+      border-radius: 20px;
+      background-color: white;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+    }
+    .menu-card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 12px 25px rgba(0,0,0,0.12);
+    }
+    .menu-icon-box {
+      font-size: 3rem;
+      color: var(--sb-primary);
+      margin-bottom: 12px;
+    }
+
+    /* Buttons & Badges */
+    .btn-back {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--sb-primary);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 20px;
+      transition: color 0.2s;
+    }
+    .btn-back:hover {
+      color: var(--sb-secondary);
+    }
+    .badge-cash { background-color: var(--sb-cash); color: white; padding: 5px 12px; border-radius: 15px; }
+    .badge-credit { background-color: var(--sb-credit); color: white; padding: 5px 12px; border-radius: 15px; }
+    
+    .total-box-display {
+      background-color: #e8f5e9;
+      border: 1px solid #c8e6c9;
+      border-radius: 10px;
+      padding: 10px 15px;
+    }
+
+/* ==================== 1. STYLES FOR PREVIEW (จำลองกระดาษ A4 บนหน้าจอ) ==================== */
+/* ขยายขนาด Modal ให้กว้างพอสำหรับรองรับกระดาษ A4 */
+#billingPreviewModal .modal-dialog {
+  max-width: 225mm !important;
+  margin: 1.75rem auto;
+}
+
+/* กำหนดพื้นหลัง Modal และรองรับการ Scroll เมื่อรายการยาว */
+#billingPreviewModal .modal-body {
+  background-color: #f1f3f5 !important;
+  padding: 20px !important;
+  max-height: 80vh !important;
+  overflow-y: auto !important;
+  overflow-x: auto !important;
+}
+
+/* คอนเทนเนอร์หลักของเอกสาร */
+#printableBillingDocument {
+  width: 100% !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+  color: #000000 !important;
+  font-size: 13px !important;
+  line-height: 1.3 !important;
+}
+
+/* จำลองแผ่นกระดาษ A4 ในหน้า Preview (รองรับทั้งแบบแผ่นเดียวและหลายแผ่น .a4-page) */
+#printableBillingDocument,
+#printableBillingDocument .a4-page {
+  width: 210mm !important;
+  min-height: 297mm !important;
+  padding: 15mm 12mm !important;
+  margin: 0 auto 20px auto !important;
+  background: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+  box-sizing: border-box !important;
+  page-break-after: always !important;
+  page-break-inside: avoid !important;
+}
+
+#printableBillingDocument .a4-page:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* สไตล์เส้นขอบตารางและตัวอักษรสำหรับ Preview */
+#printableBillingDocument table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  margin-bottom: 15px !important;
+  table-layout: fixed !important;
+  page-break-inside: auto !important;
+}
+
+#printableBillingDocument th, 
+#printableBillingDocument td {
+  border: 1px solid #000000 !important;
+  padding: 5px 6px !important;
+  font-size: 12px !important;
+  vertical-align: middle !important;
+}
+
+#printableBillingDocument th {
+  background-color: #f8f9fa !important;
+  font-weight: bold !important;
+  text-align: center !important;
+}
+
+/* จัดสไตล์รูปภาพโลโก้บน Navbar */
+.app-brand-logo {
+  height: 36px;            /* ความสูงโลโก้ (สามารถปรับเพิ่ม/ลดได้) */
+  width: auto;             /* ความกว้างปรับตามสัดส่วนจริง */
+  object-fit: contain;     /* ป้องกันรูปภาพเบี้ยวหรือยืด */
+}
+
+/* จัดสไตล์รูปภาพโลโก้หน้า Login */
+.login-logo {
+  max-height: 180px;        /* ความสูงโลโก้หน้า Login (ปรับเพิ่ม/ลดได้ตามต้องการ) */
+  width: auto;             /* ความกว้างปรับตามสัดส่วนจริง */
+  object-fit: contain;     /* ป้องกันรูปภาพเบี้ยว */
+}
+
+/* ==================== 2. STYLES FOR PRINTING (FIXED) ==================== */
+@media print {
+  /* 1. กำหนดขนาดกระดาษ A4 และระยะขอบ */
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  /* 2. รีเซ็ตโครงสร้างหน้าเว็บหลัก */
+  html, body {
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    overflow: visible !important;
+  }
+
+  /* 3. ซ่อนองค์ประกอบอื่นๆ ทั้งหมด */
+  body * {
+    visibility: hidden !important;
+  }
+
+  /* 4. ล้างค่า Bootstrap Modal ทั้งหมดไม่ให้ส่งผลกระทบต่อตำแหน่งเอกสาร */
+  .modal, 
+  .modal-dialog, 
+  .modal-content, 
+  .modal-body {
+    position: static !important;
+    top: auto !important;
+    left: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    transform: none !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  .modal-backdrop, .modal-header, .modal-footer, .btn, .btn-close {
+    display: none !important;
+  }
+
+  /* 5. แสดงใบวางบิลในลำดับปกติ (static) เพื่อให้เบราว์เซอร์แบ่งขึ้นหน้า 2 ได้ถูกต้อง */
+  #printableBillingDocument,
+  #printableBillingDocument * {
+    visibility: visible !important;
+  }
+
+  #printableBillingDocument,
+  #printableBillingDocument .a4-page {
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: auto !important; /* ปล่อยความสูงตามจริงตอนพิมพ์ */
+    margin: 0 auto !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important; /* ปิดเงากระดาษตอนพิมพ์ */
+    background: #ffffff !important;
+  }
+
+  /* 6. ควบคุมการแบ่งหน้าสำหรับตารางและกล่องเซ็นชื่อ */
+  #printableBillingDocument table {
+    width: 100% !important;
+    table-layout: fixed !important;
+    page-break-inside: auto !important;
+  }
+
+  /* ห้ามตัดบรรทัดกลางแถวสินค้า */
+  #printableBillingDocument tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto !important;
+  }
+
+  /* ให้หัวตารางแสดงซ้ำที่ด้านบนเมื่อขึ้นหน้าใหม่ */
+  #printableBillingDocument thead {
+    display: table-header-group !important;
+  }
+
+  /* ห้ามตัดกล่องสรุปยอดและกล่องลายเซ็นกลางกล่อง */
+  #printableBillingDocument .card,
+  #printableBillingDocument .border,
+  #printableBillingDocument .billing-summary-box {
+    page-break-inside: avoid !important;
+  }
+}
+  

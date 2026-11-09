@@ -1,0 +1,59 @@
+<section id="customerSalesReportModuleSection" class="container-fluid px-4 py-4 module-section" style="display: none;">
+  <!-- Header Bar -->
+  <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+      <h3 class="fw-bold text-dark mb-1"><i class="bi bi-person-lines-fill text-success me-2"></i>รายงานยอดขายตามลูกค้า</h3>
+      <p class="text-muted small mb-0">สรุปยอดขายรวมสะสม แยกตามชนิดน้ำมัน (95 / ดีเซล) รายบุคคล</p>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <button class="btn btn-outline-success" onclick="loadCustomerSalesReport()">
+        <i class="bi bi-arrow-clockwise me-1"></i> รีเฟรชข้อมูล
+      </button>
+      <button class="btn btn-secondary" onclick="showModule('mainMenuSection')">
+        <i class="bi bi-arrow-left me-1"></i> กลับหน้าหลัก
+      </button>
+    </div>
+  </div>
+
+  <!-- ตารางแสดงรายงานยอดขายตามลูกค้า -->
+  <div class="card border-0 shadow-sm rounded-3">
+    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+      <h6 class="fw-bold text-dark mb-0">
+        <i class="bi bi-table me-2 text-primary"></i>ตารางสรุปยอดขายแยกตามรายชื่อลูกค้า
+      </h6>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-bordered table-hover align-middle mb-0">
+          <thead class="table-light text-center align-middle">
+            <tr>
+              <th style="width: 5%;">ลำดับ</th>
+              <th style="width: 25%;">ชื่อลูกค้า / บริษัท</th>
+              <th style="width: 13%;" class="table-danger text-danger">95 (ลิตร)</th>
+              <th style="width: 15%;" class="table-danger text-danger">95 (บาท)</th>
+              <th style="width: 13%;" class="table-secondary text-dark">ดีเซล (ลิตร)</th>
+              <th style="width: 15%;" class="table-secondary text-dark">ดีเซล (บาท)</th>
+              <th style="width: 14%;" class="table-success text-success">รวมเงินทั้งหมด (บาท)</th>
+            </tr>
+          </thead>
+          <tbody id="customerSalesReportTableBody">
+            <tr>
+              <td colspan="7" class="text-center text-muted py-4">กำลังโหลดข้อมูล...</td>
+            </tr>
+          </tbody>
+          <tfoot class="table-light fw-bold text-end align-middle">
+            <tr>
+              <td colspan="2" class="text-center">รวมทั้งหมด</td>
+              <td id="ft95Liters" class="text-danger">0.00</td>
+              <td id="ft95Amount" class="text-danger">0.00</td>
+              <td id="ftDieselLiters" class="text-dark">0.00</td>
+              <td id="ftDieselAmount" class="text-dark">0.00</td>
+              <td id="ftGrandTotal" class="text-success fs-6">0.00</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- ==================== MONTHLY EXPENSE REPORT MODULE ==================== -->

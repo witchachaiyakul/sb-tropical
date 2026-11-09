@@ -1,0 +1,209 @@
+  <div class="container-fluid px-4 py-4" id="billingModuleSection" style="display: none;">
+    
+    <div class="btn-back" onclick="showModule('mainMenuSection')">
+      <i class="bi bi-arrow-left-circle-fill fs-5"></i>
+      <span>ย้อนกลับหน้าเมนูหลัก</span>
+    </div>
+
+    <div class="sb-card p-4">
+      <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 pb-2 border-bottom gap-2">
+        <h5 class="fw-bold mb-0 text-dark">
+          <i class="bi bi-file-earmark-spreadsheet-fill text-primary me-2"></i>ออกใบวางบิล (ลูกหนี้เงินเชื่อ)
+        </h5>
+
+        <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
+          <div class="d-flex align-items-center gap-1 bg-light p-1 rounded border">
+            <small class="fw-bold text-muted px-1"><i class="bi bi-calendar-range me-1"></i>ตั้งแต่:</small>
+            <select class="form-select form-select-sm w-auto" id="filterBillStartMonth"></select>
+            <select class="form-select form-select-sm w-auto" id="filterBillStartYear"></select>
+
+            <small class="fw-bold text-muted px-1">ถึง:</small>
+            <select class="form-select form-select-sm w-auto" id="filterBillEndMonth"></select>
+            <select class="form-select form-select-sm w-auto" id="filterBillEndYear"></select>
+          </div>
+
+          <select class="form-select form-select-sm w-auto fw-bold" id="filterBillBuyer" style="max-width: 200px;" onchange="filterBillingByBuyer()">
+            <option value="ALL">-- ลูกค้าทั้งหมด --</option>
+          </select>
+
+          <button type="button" class="btn btn-primary" onclick="loadBillingData()">
+            <i class="fas fa-search"></i> ค้นหา
+          </button>
+        </div>
+      </div>
+
+      <div class="alert alert-info d-flex flex-wrap align-items-center justify-content-between gap-3 py-2 px-3 mb-3">
+        <div class="d-flex align-items-center gap-3">
+          <div>
+            <span class="fw-bold">รายการที่เลือก:</span> 
+            <span class="badge bg-primary fs-6 ms-1" id="selectedBillCount">0</span> รายการ
+          </div>
+          <div>
+            <span class="fw-bold">ยอดเงินรวมที่เลือก:</span> 
+            <span class="fw-bold text-success fs-5 ms-1" id="selectedBillTotal">0.00</span> บาท
+          </div>
+        </div>
+        <button class="btn btn-success fw-bold shadow-sm" onclick="previewBillingNote()">
+          <i class="bi bi-eye-fill me-1"></i> ดูตัวอย่างใบวางบิล (Preview)
+        </button>
+      </div>
+
+      <div class="table-responsive">
+        <table id="billingTable" class="table table-hover align-middle w-100">
+          <thead class="table-light">
+            <tr>
+              <th class="text-center" style="width: 40px;">
+                <input type="checkbox" id="checkAllBill" onchange="toggleSelectAllBillItems(this)">
+              </th>
+              <th>เลขที่เอกสาร</th>
+              <th class="text-center">วันที่</th>
+              <th>ชื่อผู้ซื้อ / ลูกค้า</th>
+              <th>รายการ</th>
+              <th>ชนิดน้ำมัน</th>
+              <th class="text-end">จำนวนลิตร</th>
+              <th class="text-end">ราคา/ลิตร (บาท)</th>
+              <th class="text-end">รวม(บาท)</th>
+              <th class="text-center">สถานะชำระ</th>
+              <th>หมายเหตุ</th>
+            </tr>
+          </thead>
+          <tbody id="billingTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal ดูตัวอย่างใบวางบิล -->
+  <div class="modal fade" id="billingPreviewModal" tabindex="-1" data-bs-backdrop="static" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content border-0 shadow-lg">
+        <div class="modal-header bg-primary text-white">
+          <h5 class="modal-title fw-bold">
+            <i class="bi bi-printer-fill me-2"></i>ตัวอย่างใบวางบิล (Billing Note Preview)
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        
+        <div class="modal-body p-4 bg-light">
+          <div id="printableBillingDocument" class="bg-white p-4 p-md-5 rounded border shadow-sm mx-auto" style="max-width: 800px; color: #000; font-family: 'Sarabun', sans-serif;">
+            
+            <div class="border-bottom pb-3 mb-3">
+              <div class="d-flex align-items-center gap-3 mb-3">
+                <img src="https://lh3.googleusercontent.com/d/1Z2F5s7RXUAmSgA7bKKTqDKsHxdHGg3Cq" alt="SB Tropical Logo" style="max-height: 80px; width: auto; object-fit: contain;">
+                <div>
+                  <h2 class="fw-bold mb-0 text-nowrap" style="color: #005f73; font-size: 1.9rem; line-height: 1.2;">บริษัท เอสบี ทรอปิคอล จำกัด</h2>
+                  <p class="mb-0 text-muted small">113 หมู่ที่ 5 ตำบลศาลาด่าน อำเภอเกาะลันตา จังหวัดกระบี่ 81150</p>
+                  <p class="mb-0 text-muted small">เลขประจำตัวผู้เสียภาษี 0815551000225</p>
+                </div>
+              </div>
+
+              <div class="d-flex justify-content-between align-items-end pt-2">
+                <div style="width: 200px;"></div>
+                <div class="text-center flex-grow-1">
+                  <h4 class="fw-bold text-dark mb-0" style="font-size: 1.45rem; letter-spacing: 1px;">ใบวางบิล</h4>
+                </div>
+                <div class="text-end small" style="width: 200px; line-height: 1.6;">
+                  <div><strong>เลขที่เอกสาร:</strong> <span id="prevBillNo" class="text-primary fw-bold">BILL-XXXX</span></div>
+                  <div><strong>วันที่:</strong> <span id="prevBillDate">-</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="p-3 bg-light rounded mb-3 border">
+              <div class="row g-2 small">
+                <div class="col-12 col-md-7">
+                  <strong>นามลูกค้า/Customer:</strong> <span id="prevBuyerName">-</span>
+                </div>
+                <div class="col-12 col-md-5">
+                  <strong>เลขที่ผู้เสียภาษีอากรผู้ซื้อ:</strong> <span id="prevBuyerTaxId">-</span>
+                </div>
+                <div class="col-12">
+                  <strong>ที่อยู่/Address:</strong> <span id="prevBuyerAddress">-</span>
+                </div>
+                <!-- 📌 เพิ่มบรรทัดแสดง หมายเหตุ (ชื่อผู้ซื้อ/ลูกค้า) ต่อท้ายที่อยู่ -->
+                <div class="col-12">
+                  <strong>หมายเหตุ:</strong> <span id="prevBuyerRemark">-</span>
+                </div>
+                <div class="col-12 mt-2 pt-2 border-top text-muted">
+                  <i>ได้รับบิลไว้ตรวจสอบและพร้อมชำระเงินให้ตามรายการข้างล่างนี้</i>
+                </div>
+              </div>
+            </div>
+
+            <table class="table table-bordered align-middle mb-3" style="border-color: #ccc;">
+              <thead class="table-light text-center small">
+                <tr>
+                  <th style="width: 5%;">ลำดับ</th>
+                  <th style="width: 15%;">เลขที่ใบขาย</th>
+                  <th style="width: 12%;">วันที่</th>
+                  <th class="text-center" style="width: 12%;">ชนิดน้ำมัน</th>
+                  <th style="width: 12%;" class="text-end">จำนวน(ลิตร)</th>
+                  <th style="width: 14%;" class="text-end">ราคา/หน่วย</th>
+                  <th style="width: 20%;" class="text-end">จำนวนเงิน (บาท)</th>
+                  <th class="text-center" style="width: 14%;">หมายเหตุ</th>
+                </tr>
+              </thead>
+              <tbody id="prevBillingTableBody" class="small"></tbody>
+              <tfoot class="small">
+                <tr>
+                  <td colspan="7" class="text-end fw-bold">รวม (ราคาก่อน VAT):</td>
+                  <td class="text-end fw-bold" id="prevBillSubtotal">0.00</td>
+                </tr>
+                <tr>
+                  <td colspan="7" class="text-end fw-bold">ภาษีมูลค่าเพิ่ม (VAT 7%):</td>
+                  <td class="text-end fw-bold" id="prevBillVat">0.00</td>
+                </tr>
+                <tr class="table-light">
+                  <td colspan="7" class="text-end fw-bold text-primary fs-6">เป็นเงินทั้งสิ้น (Total Amount):</td>
+                  <td class="text-end fw-bold text-primary fs-6" id="prevBillGrandTotal">0.00</td>
+                </tr>
+              </tfoot>
+            </table>
+
+            <div class="p-2 border rounded mb-3 bg-light small">
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div><strong>นัดชำระ:</strong> ........................................................................</div>
+                <div><strong>วันที่:</strong> ......../......../........</div>
+              </div>
+            </div>
+
+            <div class="row text-center small mb-3">
+              <div class="col-6">
+                <div class="p-3 border rounded">
+                  <p class="mb-4 fw-bold">ผู้วางบิล / Issued By</p>
+                  <div class="border-bottom w-75 mx-auto mb-2"></div>
+                  <p class="mb-0 text-muted">(.........................................................)</p>
+                  <p class="mb-0 text-muted">วันที่ ......../......../........</p>
+                </div>
+              </div>
+              <div class="col-6">
+                <div class="p-3 border rounded">
+                  <p class="mb-4 fw-bold">ผู้รับวางบิล / Received By</p>
+                  <div class="border-bottom w-75 mx-auto mb-2"></div>
+                  <p class="mb-0 text-muted">(.........................................................)</p>
+                  <p class="mb-0 text-muted">วันที่ ......../......../........</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="p-2 bg-light border rounded text-center small fw-bold text-dark">
+              สั่งจ่าย: ธนาคารไทยพาณิชย์ ออมทรัพย์ สาขาเกาะลันตา (กระบี่) <br>
+              ชื่อบัญชี บริษัท เอสบี ทรอปิคอล จำกัด เลขที่บัญชี 797 - 240310 - 8
+            </div>
+
+          </div> <!-- ปิด printableBillingDocument -->
+        </div> <!-- 📌 ปิด modal-body -->
+
+        <div class="modal-footer bg-white">
+          <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">
+            <i class="bi bi-arrow-left me-1"></i> ย้อนกลับไปแก้ไขการเลือก
+          </button>
+          <button type="button" class="btn btn-primary fw-bold px-4" id="btnConfirmBill" onclick="confirmAndIssueBilling()">
+            <i class="bi bi-printer-fill me-1"></i> ยืนยันออกใบวางบิล & พิมพ์ PDF
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODULE: ตั้งเบิกค่าใช้จ่าย ==================== -->

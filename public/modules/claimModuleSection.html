@@ -1,0 +1,151 @@
+  <div id="claimModuleSection" class="module-section" style="display: none;">
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-body p-4">
+        <div class="row align-items-center g-3 mb-3">
+          <div class="col-md-6">
+            <h4 class="fw-bold text-dark mb-0"><i class="bi bi-cash-stack text-success me-2"></i>ตั้งเบิกค่าใช้จ่ายภายใน</h4>
+          </div>
+          <div class="col-md-6 text-md-end">
+            <div class="d-flex flex-wrap justify-content-md-end align-items-center gap-2">
+              <select id="filterClaimStartMonth" class="form-select form-select-sm w-auto"></select>
+              <select id="filterClaimStartYear" class="form-select form-select-sm w-auto"></select>
+              <span>ถึง</span>
+              <select id="filterClaimEndMonth" class="form-select form-select-sm w-auto"></select>
+              <select id="filterClaimEndYear" class="form-select form-select-sm w-auto"></select>
+              <button class="btn btn-primary btn-sm px-3" onclick="loadClaimData()">
+                <i class="bi bi-search me-1"></i>ค้นหา
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-flex align-items-center justify-content-between bg-light p-3 rounded mb-3">
+          <div class="btn-group" role="group">
+            <input type="radio" class="btn-check" name="claimStatusToggle" id="statusUnclaimed" value="unclaimed" checked onchange="filterClaimByStatus()">
+            <label class="btn btn-outline-success btn-sm" for="statusUnclaimed"><i class="bi bi-hourglass-split me-1"></i>ยังไม่ตั้งเบิก</label>
+            
+            <input type="radio" class="btn-check" name="claimStatusToggle" id="statusClaimed" value="claimed" onchange="filterClaimByStatus()">
+            <label class="btn btn-outline-secondary btn-sm" for="statusClaimed"><i class="bi bi-check-circle me-1"></i>ตั้งเบิกแล้ว</label>
+          </div>
+
+          <div class="d-flex align-items-center gap-3">
+            <div class="fs-6 fw-bold">
+              รายการที่เลือก: <span id="selectedClaimCount" class="badge bg-primary fs-6">0</span> รายการ
+              | ยอดรวม: <span id="selectedClaimAmount" class="text-success fs-5">0.00</span> บาท
+            </div>
+            <button class="btn btn-success btn-sm" onclick="previewClaimNote()">
+              <i class="bi bi-eye me-1"></i>ดูตัวอย่างใบตั้งเบิก (Preview)
+            </button>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table id="claimTable" class="table table-hover table-bordered align-middle w-100 fs-7">
+            <thead class="table-light text-center">
+              <tr>
+                <th width="4%"><input type="checkbox" id="checkAllClaim" onchange="toggleSelectAllClaimItems(this)"></th>
+                <th width="15%">เลขบันทึกค่าใช้จ่าย</th>
+                <th width="10%">วันที่</th>
+                <th width="18%">หมวดหมู่/รายการ</th>
+                <th width="20%">รายละเอียด</th>
+                <th width="12%" class="text-end">จำนวนเงิน (บาท)</th>
+                <th width="10%">สถานะ</th>
+                <th width="11%">หมายเหตุ</th>
+              </tr>
+            </thead>
+            <tbody id="claimTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+    <!-- Modal ดูตัวอย่างใบตั้งเบิกค่าใช้จ่าย -->
+    <div class="modal fade" id="claimPreviewModal" tabindex="-1" data-bs-backdrop="static" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg">
+          <div class="modal-header bg-success text-white">
+            <h5 class="modal-title fw-bold">
+              <i class="bi bi-printer-fill me-2"></i>ตัวอย่างใบตั้งเบิกค่าใช้จ่าย (Claim Note Preview)
+            </h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          
+          <div class="modal-body p-4 bg-light">
+            <div id="printableClaimDocument" class="bg-white p-4 p-md-5 rounded border shadow-sm mx-auto" style="max-width: 800px; color: #000; font-family: 'Sarabun', sans-serif;">
+              <div class="border-bottom pb-3 mb-3">
+                <div class="d-flex align-items-center gap-3 mb-3">
+                  <img src="https://lh3.googleusercontent.com/d/1Z2F5s7RXUAmSgA7bKKTqDKsHxdHGg3Cq" alt="SB Tropical Logo" style="max-height: 80px; width: auto; object-fit: contain;">
+                  <div>
+                    <h2 class="fw-bold mb-0 text-nowrap" style="color: #005f73; font-size: 1.9rem; line-height: 1.2;">บริษัท เอสบี ทรอปิคอล จำกัด</h2>
+                    <p class="mb-0 text-muted small">113 หมู่ที่ 5 ตำบลศาลาด่าน อำเภอเกาะลันตา จังหวัดกระบี่ 81150</p>
+                    <p class="mb-0 text-muted small">เลขประจำตัวผู้เสียภาษี 0815551000225</p>
+                  </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-end pt-2">
+                  <div style="width: 200px;"></div>
+                  <div class="text-center flex-grow-1">
+                    <h4 class="fw-bold text-dark mb-0" style="font-size: 1.45rem; letter-spacing: 1px;">ใบตั้งเบิกค่าใช้จ่าย</h4>
+                  </div>
+                  <div class="text-end small" style="width: 200px; line-height: 1.6;">
+                    <div><strong>เลขที่เอกสาร:</strong> <span id="prevClaimNo" class="text-success fw-bold">SBCE-XXXX</span></div>
+                    <div><strong>วันที่:</strong> <span id="prevClaimDate">-</span></div>
+                  </div>
+                </div>
+              </div>
+
+              <table class="table table-bordered align-middle mb-3" style="border-color: #ccc;">
+                <thead class="table-light text-center small">
+                  <tr>
+                    <th style="width: 6%;">ลำดับ</th>
+                    <th style="width: 20%;">เลขบันทึกค่าใช้จ่าย</th>
+                    <th style="width: 14%;">วันที่</th>
+                    <th style="width: 22%;">หมวดหมู่ / รายการ</th>
+                    <th style="width: 20%;">รายละเอียด</th>
+                    <th style="width: 18%;" class="text-end">จำนวนเงิน (บาท)</th>
+                  </tr>
+                </thead>
+                <tbody id="prevClaimTableBody" class="small"></tbody>
+                <tfoot class="small">
+                  <tr class="table-light">
+                    <td colspan="5" class="text-end fw-bold text-success fs-6">รวมทั้งสิ้น (Grand Total):</td>
+                    <td class="text-end fw-bold text-success fs-6" id="prevClaimGrandTotal">0.00</td>
+                  </tr>
+                </tfoot>
+              </table>
+
+              <div class="row text-center small mb-3 mt-4">
+                <div class="col-6">
+                  <div class="p-3 border rounded">
+                    <p class="mb-4 fw-bold">ผู้ขอตั้งเบิก / Claimed By</p>
+                    <div class="border-bottom w-75 mx-auto mb-2"></div>
+                    <p class="mb-0 text-muted">(.........................................................)</p>
+                    <p class="mb-0 text-muted">วันที่ ......../......../........</p>
+                  </div>
+                </div>
+                <div class="col-6">
+                  <div class="p-3 border rounded">
+                    <p class="mb-4 fw-bold">ผู้อนุมัติ / Approved By</p>
+                    <div class="border-bottom w-75 mx-auto mb-2"></div>
+                    <p class="mb-0 text-muted">(.........................................................)</p>
+                    <p class="mb-0 text-muted">วันที่ ......../......../........</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer bg-white">
+            <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">
+              <i class="bi bi-arrow-left me-1"></i> ย้อนกลับ
+            </button>
+            <button type="button" class="btn btn-success fw-bold px-4" id="btnConfirmClaim" onclick="confirmAndIssueClaim()">
+              <i class="bi bi-printer-fill me-1"></i> ยืนยันตั้งเบิก & พิมพ์ PDF
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+<!-- ==================== SECTION 5: OIL STOCK MODULE ==================== -->

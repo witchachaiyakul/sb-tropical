@@ -1,0 +1,195 @@
+  <div class="container-fluid px-4 py-4" id="salesModuleSection" style="display: none;">
+    
+    <div class="btn-back" onclick="showModule('mainMenuSection')">
+      <i class="bi bi-arrow-left-circle-fill fs-5"></i>
+      <span>ย้อนกลับหน้าเมนูหลัก</span>
+    </div>
+
+    <div class="row g-4">
+      <div class="col-12">
+        <div class="sb-card p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+            <h5 class="fw-bold mb-0 text-dark">
+              <i class="bi bi-plus-circle-fill text-primary me-2"></i>บันทึกรายการขาย
+            </h5>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="resetForm()">
+              <i class="bi bi-arrow-clockwise me-1"></i>ล้างฟอร์ม
+            </button>
+          </div>
+
+          <form id="salesForm">
+            <input type="hidden" id="editDocId" value="">
+
+            <div class="row g-3">
+              <div class="col-12 col-md-3">
+                <label class="form-label small fw-bold">เลขที่เอกสาร (NO)</label>
+                <input type="text" class="form-control bg-light" id="saleNo" readonly placeholder="SB1069-0001">
+              </div>
+              <div class="col-12 col-md-3">
+                <label class="form-label small fw-bold">วันที่รายการ</label>
+                <div class="input-group">
+                  <input type="text" class="form-control bg-white" id="saleDate" placeholder="เลือกวันที่..." readonly>
+                  <button class="btn btn-outline-secondary" type="button" id="btnCalendar">
+                    <i class="bi bi-calendar3"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label small fw-bold">ชื่อผู้ซื้อ / ลูกค้า <span class="text-danger">*</span></label>
+                <div class="input-group">
+                  <input list="buyerList" class="form-control" id="buyerName" placeholder="ระบุชื่อผู้ซื้อ หรือ เลือกจากตัวเลือก" required autocomplete="off">
+                  <button class="btn btn-outline-primary fw-bold" type="button" onclick="openAddBuyerModal()">
+                    <i class="bi bi-person-plus-fill me-1"></i> เพิ่มผู้ซื้อ
+                  </button>
+                </div>
+                <datalist id="buyerList"></datalist>
+              </div>
+
+              <div class="col-12">
+                <label class="form-label small fw-bold me-3 text-primary">ประเภทรายการ <span class="text-danger">*</span></label>
+                <div class="form-check form-check-inline">
+                  <input class="form-check-input" type="radio" name="itemType" id="itemTypeFuel" value="น้ำมัน" checked onchange="toggleItemType()">
+                  <label class="form-check-label small fw-bold" for="itemTypeFuel"><i class="bi bi-fuel-pump me-1"></i>น้ำมัน</label>
+                </div>
+                <div class="form-check form-check-inline">
+                  <input class="form-check-input" type="radio" name="itemType" id="itemTypeOther" value="อื่นๆ" onchange="toggleItemType()">
+                  <label class="form-check-label small fw-bold" for="itemTypeOther"><i class="bi bi-box-seam me-1"></i>อื่นๆ</label>
+                </div>
+              </div>
+
+              <div class="col-12 col-md-2" id="fuelNameCol">
+                <label class="form-label small fw-bold">ชนิดน้ำมัน <span class="text-danger">*</span></label>
+                <select class="form-select fw-bold" id="fuelItemName">
+                  <option value="95" selected>95</option>
+                  <option value="ดีเซล">ดีเซล</option>
+                </select>
+              </div>
+
+              <div class="col-12 col-md-2" id="fuelPriceCol">
+                <label class="form-label small fw-bold">ราคา / ลิตร (บาท) <span class="text-danger">*</span></label>
+                <input type="number" step="any" min="0" class="form-control text-end fw-bold" id="pricePerLiter" placeholder="0.00" oninput="calculateTotal()" required>
+              </div>
+
+              <div class="col-12 col-md-2" id="fuelQtyCol">
+                <label class="form-label small fw-bold">จำนวน (ลิตร) <span class="text-danger">*</span></label>
+                <input type="number" step="any" min="0" class="form-control text-end fw-bold" id="liters" placeholder="0.00" oninput="calculateTotal()" required>
+              </div>
+
+              <div class="col-12 col-md-3" id="otherNameCol" style="display: none;">
+                <label class="form-label small fw-bold">รายการ <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="otherItemName" placeholder="ระบุรายการ">
+              </div>
+
+              <div class="col-6 col-md-2" id="otherQtyCol" style="display: none;">
+                <label class="form-label small fw-bold">จำนวน <span class="text-danger">*</span></label>
+                <input type="number" step="any" min="0" class="form-control text-end fw-bold" id="otherQty" placeholder="0" oninput="calculateTotal()">
+              </div>
+
+              <div class="col-6 col-md-2" id="otherUnitPriceCol" style="display: none;">
+                <label class="form-label small fw-bold">ราคา / หน่วย <span class="text-danger">*</span></label>
+                <input type="number" step="any" min="0" class="form-control text-end fw-bold" id="otherUnitPrice" placeholder="0.00" oninput="calculateTotal()">
+              </div>
+
+              <div class="col-12 col-md-2">
+                <label class="form-label small fw-bold text-primary">ปรับทศนิยม</label>
+                <select class="form-select" id="decimalPrecision" onchange="calculateTotal()">
+                  <option value="2" selected>2 ตำแหน่ง</option>
+                  <option value="0">ไม่มีทศนิยม (ปัดขึ้น 1 บาท)</option>
+                  <option value="floor">ไม่มีทศนิยม (ปัดลง 1 บาท)</option>
+                </select>
+              </div>
+
+              <div class="col-12 col-md-4">
+                <label class="form-label small fw-bold text-success">จำนวนเงินรวม</label>
+                <div class="total-box-display d-flex justify-content-between align-items-center py-1 px-3" style="height: 38px;">
+                  <span class="fw-bold text-secondary small">รวม:</span>
+                  <span class="fs-5 fw-bold text-success" id="totalAmountDisplay">0.00 บาท</span>
+                </div>
+                <input type="hidden" id="totalAmount" value="0">
+              </div>
+
+              <div class="col-12 col-md-4">
+                <label class="form-label small fw-bold d-block">ประเภทการชำระเงิน <span class="text-danger">*</span></label>
+                <div class="btn-group w-100" role="group">
+                  <input type="radio" class="btn-check" name="paymentType" id="payCash" value="เงินสด" checked>
+                  <label class="btn btn-outline-success fw-bold py-2" for="payCash"><i class="bi bi-cash-coin me-1"></i> เงินสด</label>
+
+                  <input type="radio" class="btn-check" name="paymentType" id="payCredit" value="เงินเชื่อ">
+                  <label class="btn btn-outline-warning fw-bold py-2" for="payCredit"><i class="bi bi-file-earmark-text me-1"></i> เงินเชื่อ</label>
+                </div>
+              </div>
+              <div class="col-12 col-md-8">
+                <label class="form-label small fw-bold">หมายเหตุ</label>
+                <input type="text" class="form-control" id="remarks" placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)">
+              </div>
+
+              <div class="col-12 mt-3">
+                <div class="d-flex flex-column flex-md-row gap-2">
+                  <button type="submit" class="btn btn-primary btn-lg flex-fill fw-bold shadow-sm" id="btnSaveRecord" style="background-color: var(--sb-primary); border: none;">
+                    <i class="bi bi-save me-1"></i> บันทึกข้อมูลการขาย
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-lg flex-fill fw-bold shadow-sm" id="btnNewRecord" onclick="resetForm()">
+                    <i class="bi bi-plus-circle me-1"></i> บันทึกรายการใหม่
+                  </button>
+                </div>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="sb-card p-4">
+          <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 pb-2 border-bottom gap-2">
+            <h5 class="fw-bold mb-0 text-dark">
+              <i class="bi bi-table text-secondary me-2"></i>รายการบันทึกการขาย
+            </h5>
+
+            <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
+              <div class="d-flex align-items-center gap-1 bg-light p-1 rounded border">
+                <small class="fw-bold text-muted px-1"><i class="bi bi-calendar-range me-1"></i>ตั้งแต่:</small>
+                <select class="form-select form-select-sm w-auto" id="filterStartMonth"></select>
+                <select class="form-select form-select-sm w-auto" id="filterStartYear"></select>
+
+                <small class="fw-bold text-muted px-1">ถึง:</small>
+                <select class="form-select form-select-sm w-auto" id="filterEndMonth"></select>
+                <select class="form-select form-select-sm w-auto" id="filterEndYear"></select>
+
+                <button class="btn btn-sm btn-primary px-2 shadow-sm" onclick="loadSalesDataByMonthRange()">
+                  <i class="bi bi-search"></i> ค้นหา
+                </button>
+              </div>
+
+              <select class="form-select form-select-sm w-auto" id="filterPaymentType" onchange="filterData()">
+                <option value="ALL">ประเภททั้งหมด</option>
+                <option value="เงินสด">เฉพาะ เงินสด</option>
+                <option value="เงินเชื่อ">เฉพาะ เงินเชื่อ</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="table table-hover align-middle" id="salesTable" style="width:100%">
+              <thead>
+                <tr>
+                  <th>NO</th>
+                  <th>วันที่</th>
+                  <th>ผู้ซื้อ</th>
+                  <th>บาท/หน่วย</th>
+                  <th>จำนวน</th>
+                  <th>จำนวนเงิน</th>
+                  <th>ชำระเงิน</th>
+                  <th>หมายเหตุ</th>
+                  <th>จัดการ</th>
+                </tr>
+              </thead>
+              <tbody id="salesTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ==================== 5. MODULE 2: EXPENSE RECORDING SYSTEM ==================== -->

@@ -1,0 +1,92 @@
+<section id="receiptModuleSection" class="module-section d-none">
+  <div class="d-flex align-items-center mb-3">
+    <button class="btn btn-outline-secondary btn-sm" onclick="showModule('mainMenuSection')">
+      <i class="bi bi-arrow-left"></i> ย้อนกลับหน้าเมนูหลัก
+    </button>
+  </div>
+
+  <div class="card shadow-sm border-0 mb-4">
+    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+      <h4 class="fw-bold text-dark mb-0">
+        <i class="bi bi-wallet2 text-primary me-2"></i>ออกใบเสร็จรับเงิน / ใบกำกับภาษี
+      </h4>
+      <button class="btn btn-success fw-bold" onclick="generateBatchReceipts()">
+        <i class="bi bi-file-earmark-pdf-fill me-1"></i> ออกใบเสร็จรับเงิน (รายการที่เลือก)
+      </button>
+    </div>
+    <div class="card-body">
+      
+<!-- 🟢 ตัวกรอง: เลือกเดือน / เลือก พ.ศ. / กรองผู้ซื้อ -->
+      <div class="row g-3 mb-4 bg-light p-3 rounded align-items-end">
+        <div class="col-6 col-md-3">
+          <label class="form-label fw-bold mb-1"><i class="bi bi-calendar-month me-1"></i>เลือกเดือน</label>
+          <select id="rcpFilterMonth" class="form-select" onchange="loadUnreceiptedData()">
+            <option value="01">มกราคม</option>
+            <option value="02">กุมภาพันธ์</option>
+            <option value="03">มีนาคม</option>
+            <option value="04">เมษายน</option>
+            <option value="05">พฤษภาคม</option>
+            <option value="06">มิถุนายน</option>
+            <option value="07">กรกฎาคม</option>
+            <option value="08">สิงหาคม</option>
+            <option value="09">กันยายน</option>
+            <option value="10">ตุลาคม</option>
+            <option value="11">พฤศจิกายน</option>
+            <option value="12">ธันวาคม</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label fw-bold mb-1"><i class="bi bi-calendar-event me-1"></i>เลือก พ.ศ.</label>
+          <select id="rcpFilterYear" class="form-select" onchange="loadUnreceiptedData()">
+            <option value="2569">2569</option>
+            <option value="2570">2570</option>
+            <option value="2571">2571</option>
+          </select>
+        </div>
+        <div class="col-12 col-md-4">
+          <label class="form-label fw-bold mb-1"><i class="bi bi-person me-1"></i>กรองผู้ซื้อ</label>
+          <select id="rcpBuyerFilter" class="form-select" onchange="filterUnreceiptedTable()">
+            <option value="ALL">-- แสดงทั้งหมด --</option>
+          </select>
+        </div>
+        <div class="col-12 col-md-2 text-end">
+          <button class="btn btn-primary w-100" onclick="loadUnreceiptedData()">
+            <i class="bi bi-search me-1"></i> ค้นหา
+          </button>
+        </div>
+      </div>
+
+<!-- ตารางรายการที่ยังไม่ออกใบเสร็จ -->
+      <div class="table-responsive">
+        <table class="table table-hover table-bordered align-middle">
+          <thead class="table-primary text-center">
+            <tr>
+              <th width="40"><input type="checkbox" id="checkAllRcp" onchange="toggleSelectAllRcp(this)"></th>
+              <th>เลขที่บิล</th>
+              <th>วันที่</th>
+              <th>ผู้ซื้อ/ลูกค้า</th>
+              <th>ประเภทสินค้า</th>
+              <th>รายการสินค้า</th> <!-- 🟢 เพิ่มคอลัมน์ itemName ต่อจากประเภทสินค้า -->
+              <th>จำนวน</th>
+              <th>ราคา/หน่วย</th>
+              <th>จำนวนเงินรวม</th>
+            </tr>
+          </thead>
+          <tbody id="unreceiptedTableBody">
+            <tr>
+              <td colspan="9" class="text-center py-4 text-muted">
+                <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                  <span class="visually-hidden">Loading...</span>
+                </div>
+                กำลังดึงข้อมูลรายการค้างออกใบเสร็จ...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SECTION 6: FINANCIAL SUMMARY MODULE ==================== -->
