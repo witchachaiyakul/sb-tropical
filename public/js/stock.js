@@ -1,27 +1,55 @@
+// public/js/stock.js
+
+let stockFp = null;
+let currentOilStockData = {
+  stock95: {},
+  stockDiesel: {}
+};
+
+document.addEventListener('DOMContentLoaded', function () {
+  initStockDatePicker();
+  loadOilStockData();
+});
+
+// 1. เริ่มต้นใช้งาน Flatpickr Datepicker (พ.ศ.)
 function initStockDatePicker() {
   if (!stockFp && document.getElementById('filterStockDate')) {
     stockFp = flatpickr("#filterStockDate", {
       locale: "th",
       dateFormat: "d/m/Y",
       defaultDate: new Date(),
-      disableMobile: "true",
-      onChange: function(selectedDates, dateStr, instance) {
-        console.log("📅 [Client] Flatpickr date changed:", dateStr);
+      disableMobile: true,
+      onReady: function (selectedDates, dateStr, instance) {
+        updateStockDisplayToBE(instance);
+      },
+      onChange: function (selectedDates, dateStr, instance) {
+        updateStockDisplayToBE(instance);
+        console.log("📅 [Client] Flatpickr date changed:", instance.input.value);
         loadOilStockData();
       }
     });
 
     const btnCal = document.getElementById('btnStockCalendar');
     if (btnCal) {
-      btnCal.addEventListener('click', function() {
+      btnCal.addEventListener('click', function () {
         if (stockFp) stockFp.open();
       });
     }
   }
 }
 
-// 2. ดึงข้อมูลสต็อกน้ำมันจาก Server ตามวันที่เลือก
-function loadOilStockData() {
+function updateStockDisplayToBE(instance) {
+  if (instance && instance.selectedDates && instance.selectedDates.length > 0) {
+    const d = instance.selectedDates[0];
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const yearBE = d.getFullYear() + 543;
+    instance.input.value = `${day}/${month}/${yearBE}`;
+  }
+}
+
+// 2. ดึงข้อมูลสต็อกน้ำมันตามวันที่เลือก
+async function loadOilStockData() {
   initStockDatePicker();
 
   let selectedDateStr = "";
@@ -36,40 +64,30 @@ function loadOilStockData() {
     selectedDateStr = filterInput ? filterInput.value : '';
   }
 
-  console.log("🔍 [Client] Sending Date to Server:", selectedDateStr);
-
   if (typeof Swal !== 'undefined') {
-    Swal.fire({ 
-      title: 'กำลังคำนวณสต็อกน้ำมัน...', 
-      allowOutsideClick: false, 
-      didOpen: () => Swal.showLoading() 
+    Swal.fire({
+      title: 'กำลังคำนวณสต็อกน้ำมัน...',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading()
     });
   }
 
-  backend.run
-    .withSuccessHandler(function(res) {
-      console.log("📥 [Client] Received Response from Server:", res);
-      if (typeof Swal !== 'undefined') Swal.close();
+  try {
+    const res = await getOilStockData(selectedDateStr);
+    if (typeof Swal !== 'undefined') Swal.close();
 
-      if (res && res.success) {
-        currentOilStockData.stock95 = res.stock95 || {};
-        currentOilStockData.stockDiesel = res.stockDiesel || {};
+    if (res && res.success) {
+      currentOilStockData.stock95 = res.stock95 || {};
+      currentOilStockData.stockDiesel = res.stockDiesel || {};
 
-        console.log("⛽ Stock 95 Summary:", res.stock95);
-        console.log("⛽ Stock Diesel Summary:", res.stockDiesel);
-
-        renderOilStockCards(res.stock95, res.stockDiesel, selectedDateStr);
-      } else {
-        console.error("❌ [Client] Server returned error:", res ? res.message : "Unknown error");
-        if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาด', res ? res.message : 'ไม่สามารถโหลดข้อมูลสต็อกได้', 'error');
-      }
-    })
-    .withFailureHandler(function(err) {
-      console.error("💥 [Client] backend.run Failed:", err);
-      if (typeof Swal !== 'undefined') Swal.close();
-      if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาดจาก Server', err.toString(), 'error');
-    })
-    .getOilStockData(selectedDateStr);
+      renderOilStockCards(res.stock95, res.stockDiesel, selectedDateStr);
+    } else {
+      if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาด', res ? res.message : 'ไม่สามารถโหลดข้อมูลสต็อกได้', 'error');
+    }
+  } catch (err) {
+    if (typeof Swal !== 'undefined') Swal.close();
+    if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาดจากระบบ', err.toString(), 'error');
+  }
 }
 
 // 3. ฟังก์ชันอัปเดตการ์ดแสดงผลบนหน้าจอ
@@ -122,7 +140,7 @@ function renderOilStockCards(s95, sDiesel, dateVal) {
   setTxt('stock95In', fmtNum(s95.totalIn));
   setTxt('stock95Out', fmtNum(s95.totalOut));
   setTxt('stock95Current', fmtNum(s95.currentStock) + ' ลิตร');
-  setTxt('stock95CashSales', fmtNum(s95.cashSales) + ' บาท'); // 🟢 เพิ่มหยอดค่ายอดขายเงินสด
+  setTxt('stock95CashSales', fmtNum(s95.cashSales) + ' บาท');
   setTxt('badge95Stock', 'คงเหลือ ณ สิ้นวัน ' + fmtNum(s95.currentStock) + ' ลิตร');
 
   // ⛽ ดีเซล
@@ -130,11 +148,11 @@ function renderOilStockCards(s95, sDiesel, dateVal) {
   setTxt('stockDieselIn', fmtNum(sDiesel.totalIn));
   setTxt('stockDieselOut', fmtNum(sDiesel.totalOut));
   setTxt('stockDieselCurrent', fmtNum(sDiesel.currentStock) + ' ลิตร');
-  setTxt('stockDieselCashSales', fmtNum(sDiesel.cashSales) + ' บาท'); // 🟢 เพิ่มหยอดค่ายอดขายเงินสด
+  setTxt('stockDieselCashSales', fmtNum(sDiesel.cashSales) + ' บาท');
   setTxt('badgeDieselStock', 'คงเหลือ ณ สิ้นวัน ' + fmtNum(sDiesel.currentStock) + ' ลิตร');
 }
 
-// 3. เปิด Modal ตั้งค่าสต็อกตั้งต้น
+// 4. เปิด Modal ตั้งค่าสต็อกตั้งต้น
 function openSetInitialStockModal() {
   const init95 = currentOilStockData.stock95 ? currentOilStockData.stock95.initialStock : 0;
   const initDiesel = currentOilStockData.stockDiesel ? currentOilStockData.stockDiesel.initialStock : 0;
@@ -144,7 +162,6 @@ function openSetInitialStockModal() {
     if (el) el.value = parseFloat(val) || 0;
   };
 
-  // ดึงสต็อกตั้งต้นจากตัวแปรสคริปต์ไปใส่ช่อง Input ก่อนเปิด Modal
   setVal('inputInitial95', init95);
   setVal('inputInitialDiesel', initDiesel);
 
@@ -155,8 +172,8 @@ function openSetInitialStockModal() {
   }
 }
 
-// 4. บันทึกสต็อกตั้งต้นไปที่ Firestore
-function saveInitialOilStock() {
+// 5. บันทึกสต็อกตั้งต้นไปที่ Firestore
+async function saveInitialOilStock() {
   const init95 = parseFloat(document.getElementById('inputInitial95').value) || 0;
   const initDiesel = parseFloat(document.getElementById('inputInitialDiesel').value) || 0;
 
@@ -164,31 +181,25 @@ function saveInitialOilStock() {
     Swal.fire({ title: 'กำลังบันทึกสต็อกตั้งต้น...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
   }
 
-  backend.run
-    .withSuccessHandler(function(res) {
-      if (typeof Swal !== 'undefined') Swal.close();
-      if (res && res.success) {
-        const modalEl = document.getElementById('setInitialStockModal');
-        const modalInstance = bootstrap.Modal.getInstance(modalEl);
-        if (modalInstance) modalInstance.hide();
+  try {
+    const res = await setInitialOilStock(init95, initDiesel);
+    if (typeof Swal !== 'undefined') Swal.close();
 
-        if (typeof Swal !== 'undefined') {
-          Swal.fire('บันทึกสำเร็จ', 'อัปเดตสต็อกตั้งต้นเรียบร้อยแล้ว', 'success').then(() => {
-            loadOilStockData();
-          });
-        }
-      } else {
-        if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาด', res ? res.message : 'ไม่สามารถบันทึกได้', 'error');
+    if (res && res.success) {
+      const modalEl = document.getElementById('setInitialStockModal');
+      const modalInstance = bootstrap.Modal.getInstance(modalEl);
+      if (modalInstance) modalInstance.hide();
+
+      if (typeof Swal !== 'undefined') {
+        Swal.fire('บันทึกสำเร็จ', 'อัปเดตสต็อกตั้งต้นเรียบร้อยแล้ว', 'success').then(() => {
+          loadOilStockData();
+        });
       }
-    })
-    .withFailureHandler(function(err) {
-      if (typeof Swal !== 'undefined') Swal.close();
-      if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาดจาก Server', err.toString(), 'error');
-    })
-    .setInitialOilStock(init95, initDiesel);
+    } else {
+      if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาด', res ? res.message : 'ไม่สามารถบันทึกได้', 'error');
+    }
+  } catch (err) {
+    if (typeof Swal !== 'undefined') Swal.close();
+    if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาดจากระบบ', err.toString(), 'error');
+  }
 }
-// บันทึกการจ่ายเงินของลูกค้า และบันทึกการโอนค่าใช้จ่าย
-// บันทึกการจ่ายเงินของลูกค้า และบันทึกการโอนค่าใช้จ่าย
-// บันทึกการจ่ายเงินของลูกค้า และบันทึกการโอนค่าใช้จ่าย
-// บันทึกการจ่ายเงินของลูกค้า และบันทึกการโอนค่าใช้จ่าย
-// บันทึกการจ่ายเงินของลูกค้า และบันทึกการโอนค่าใช้จ่าย

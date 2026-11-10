@@ -38,6 +38,16 @@
       box-shadow: 0 15px 35px rgba(0,0,0,0.2);
     }
 
+    /* กำหนดขนาดกรอบสำหรับครอบโลโก้ */
+.login-logo {
+  max-width: 160px;          /* หรือกำหนดความกว้างสูงสุดตามต้องการ เช่น 150px - 200px */
+  max-height: 120px;         /* ความสูงสูงสุด */
+  width: auto;               /* รักษาอัตราส่วนภาพไม่ให้เบี้ยว */
+  height: auto;              /* รักษาอัตราส่วนภาพไม่ให้เบี้ยว */
+  object-fit: contain;       /* จัดรูปให้อยู่ในกรอบโดยไม่บิดเบี้ยวหรือโดนยืด */
+  display: inline-block;
+}
+
     /* SweetAlert fix layer */
     .swal2-container {
       z-index: 99999 !important;

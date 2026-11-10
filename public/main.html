@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบบริหารจัดการ - SB Tropical</title>
+
+  <!-- 1. Bootstrap 5 CSS & Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+
+  <!-- 2. Custom CSS -->
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+
+  <!-- ==================== TOP NAVBAR ==================== -->
+  <nav class="navbar navbar-expand-lg navbar-dark style="background-color: var(--sb-primary, #0d6efd);" shadow-sm">
+    <div class="container-fluid px-4">
+      <a class="navbar-brand d-flex align-items-center fw-bold" href="#">
+        <img src="images/sb.png" alt="SB Logo" height="36" class="me-2 bg-white rounded p-1">
+        SB Tropical
+      </a>
+
+      <div class="d-flex align-items-center gap-3">
+        <!-- ปุ่มกลับหน้าหลัก -->
+        <button id="navBtnHome" class="btn btn-outline-light btn-sm d-none" onclick="showModule('mainMenuSection')">
+          <i class="bi bi-house-door-fill me-1"></i> หน้าหลัก
+        </button>
+
+        <!-- ข้อมูลผู้ใช้งาน -->
+        <div class="text-white text-end d-none d-md-block">
+          <div id="userDisplayName" class="fw-bold small">กำลังโหลด...</div>
+          <span id="userRoleBadge" class="badge bg-light text-dark">พนักงาน</span>
+        </div>
+
+        <!-- ปุ่มออกจากระบบ -->
+        <button class="btn btn-danger btn-sm shadow-sm" onclick="logout()">
+          <i class="bi bi-box-arrow-right me-1"></i> ออกจากระบบ
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ==================== MAIN MENU SECTION ==================== -->
+  <div id="mainMenuSection" style="display: none;">
+    <div class="header-banner text-center py-4 bg-light mb-4 border-bottom shadow-sm">
+      <h2 class="fw-bold mb-1">ระบบบริหารจัดการ SB Tropical</h2>
+      <p class="lead mb-0 small opacity-75">เลือกเมนูการทำงานที่ต้องการใช้งาน</p>
+    </div>
+
+    <div class="container pb-5">
+      <div class="row g-4 justify-content-center">
+        
+        <!-- เมนูที่ 1: บันทึกการขาย -->
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="window.location.href='sale-record.html'">
+            <div class="menu-icon-box text-primary fs-1 mb-2">
+              <i class="bi bi-cart-check-fill"></i>
+            </div>
+            <h5 class="fw-bold text-dark mb-2">บันทึกการขาย</h5>
+            <p class="text-muted small mb-0">บันทึกรายการขายน้ำมัน ประจำวัน และตรวจสอบประวัติการขาย</p>
+          </div>
+        </div>
+
+        <!-- เมนูที่ 2: บันทึกค่าใช้จ่าย -->
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('expenseModuleSection')">
+            <div class="menu-icon-box text-primary fs-1 mb-2">
+              <i class="bi bi-receipt-cutoff"></i>
+            </div>
+            <h5 class="fw-bold text-dark mb-2">บันทึกค่าใช้จ่าย</h5>
+            <p class="text-muted small mb-0">บันทึกและติดตามรายการค่าใช้จ่ายประจำวันของบริษัท</p>
+          </div>
+        </div>
+
+        <!-- เมนูที่ 3: วางบิล -->
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('billingModuleSection')">
+            <div class="menu-icon-box text-primary fs-1 mb-2">
+              <i class="bi bi-receipt"></i>
+            </div>
+            <h5 class="fw-bold text-dark mb-2">วางบิล</h5>
+            <p class="text-muted small mb-0">วางบิลลูกค้าเงินเชื่อที่ยังไม่ออกบิล</p>
+          </div>
+        </div>
+
+        <!-- เมนูที่ 4: ตั้งเบิกค่าใช้จ่าย -->
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('claimModuleSection')">
+            <div class="menu-icon-box text-success fs-1 mb-2">
+              <i class="bi bi-cash-stack"></i>
+            </div>
+            <h5 class="fw-bold text-dark mb-2">ตั้งเบิกค่าใช้จ่าย</h5>
+            <p class="text-muted small mb-0">ตั้งเบิกค่าใช้จ่ายที่ยังไม่จ่าย</p>
+          </div>
+        </div>
+
+        <!-- เมนูที่ 5: สต็อกน้ำมัน -->
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="window.location.href='stock.html'">
+            <div class="menu-icon-box text-warning fs-1 mb-2">
+              <i class="bi bi-fuel-pump-fill"></i>
+            </div>
+            <h5 class="fw-bold text-dark mb-2">สต็อกน้ำมัน</h5>
+            <p class="text-muted small mb-0">เช็คยอดคงเหลือ นำเข้า และขายออก (95 / ดีเซล)</p>
+          </div>
+        </div>
+        
+        <!-- เมนูที่ 6: อัปเดตการชำระเงิน/โอนจ่าย -->
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('paymentManagementModuleSection')">
+            <div class="menu-icon-box text-primary fs-1 mb-2">
+              <i class="bi bi-wallet2"></i>
+            </div>
+            <h5 class="fw-bold text-dark mb-2">อัปเดตการชำระเงิน / การโอนจ่าย</h5>
+            <p class="text-muted small mb-0">บันทึกการรับชำระจากลูกค้าเงินเชื่อ และบันทึกการโอนจ่ายค่าใช้จ่ายของบริษัท</p>
+          </div>
+        </div>
+
+        <!-- เมนูที่ 7: ออกใบเสร็จรับเงิน -->
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('receiptModuleSection')">
+            <div class="menu-icon-box text-primary fs-1 mb-2">
+              <i class="bi bi-file-earmark-check-fill"></i>
+            </div>
+            <h5 class="fw-bold text-dark mb-2">ออกใบเสร็จรับเงิน</h5>
+            <p class="text-muted small mb-0">ออกใบเสร็จรับเงิน ใบกำกับภาษี</p>
+          </div>
+        </div>
+
+        <!-- เมนูที่ 8: สรุปยอดรายรับรายจ่าย -->
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('financialSummaryModuleSection')">
+            <div class="menu-icon-box text-success fs-1 mb-2">
+              <i class="bi bi-graph-up-arrow"></i>
+            </div>
+            <h5 class="fw-bold text-dark mb-2">สรุปยอดรายรับรายจ่าย</h5>
+            <p class="text-muted small mb-0">สรุปภาพรวมรายได้ ค่าใช้จ่าย กำไรขาดทุน ลูกหนี้ และส่วนของทุน</p>
+          </div>
+        </div>
+
+        <!-- เมนูที่ 9: รายงานยอดขายตามลูกค้า -->
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('customerSalesReportModuleSection')">
+            <div class="menu-icon-box text-success fs-1 mb-2">
+              <i class="bi bi-person-lines-fill"></i>
+            </div>
+            <h5 class="fw-bold text-dark mb-2">รายงานยอดขายตามลูกค้า</h5>
+            <p class="text-muted small mb-0">สรุปยอดขายน้ำมันเบนซิน 95 และดีเซล พร้อมจำนวนลิตรและยอดเงินรวมแยกตามรายชื่อลูกค้า</p>
+          </div>
+        </div>
+
+        <!-- เมนูที่ 10: รายงานสรุปยอดค่าใช้จ่ายรายเดือน -->
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('monthlyExpenseReportModuleSection')">
+            <div class="menu-icon-box text-danger fs-1 mb-2">
+              <i class="bi bi-calendar3-range-fill"></i>
+            </div>
+            <h5 class="fw-bold text-dark mb-2">รายงานสรุปยอดค่าใช้จ่ายรายเดือน</h5>
+            <p class="text-muted small mb-0">สรุปและวิเคราะห์ยอดค่าใช้จ่ายตามช่วงเดือน/พ.ศ. แยกตามหมวดหมู่ พร้อมยอดรวมและตารางรายละเอียด</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- 🟢 1. SweetAlert2 & Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <!-- 🟢 2. โหลด Firebase Web SDK (Compat Version สำหรับ Live Server) -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+  <!-- 🟢 3. สื่อกลางเชื่อมต่อ Firestore -->
+  <script src="js/firestore.js"></script>
+
+  <!-- 🟢 4. สคริปต์หลักคุม Navigation และ Login/Logout -->
+  <script src="js/login.js"></script>
+  <script src="js/main.js"></script>
+
+  <!-- 🟡 5. สคริปต์ประจำโมดูลต่างๆ -->
+  <script src="js/sale-record.js"></script>
+  <script src="js/expenseModuleSection.js"></script>
+  <script src="js/billingModuleSection.js"></script>
+  <script src="js/claimModuleSection.js"></script>
+  <script src="js/stock.js"></script>
+  <script src="js/paymentManagementModuleSection.js"></script>
+  <script src="js/receiptModuleSection.js"></script>
+  <script src="js/financialSummaryModuleSection.js"></script>
+  <script src="js/customerSalesReportModuleSection.js"></script>
+  <script src="js/monthlyExpenseReportModuleSection.js"></script>
+</body>
+</html>
