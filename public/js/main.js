@@ -15,9 +15,7 @@ function checkAppAuth() {
     try {
       window.currentUser = JSON.parse(savedUser);
       updateUserHeaderUI();
-      
-      // แสดงหน้าเมนูหลักหากยังไม่ได้เลือกโมดูลใด
-      showModule('mainMenuSection');
+ 
     } catch (e) {
       console.error("Session Parse Error:", e);
       redirectToLogin();
@@ -52,99 +50,6 @@ function redirectToLogin() {
     if (mainSection) mainSection.style.display = 'none';
   } else {
     window.location.href = 'login.html';
-  }
-}
-
-/**
- * 🟢 ฟังก์ชันหลักในการสลับโมดูลการทำงาน (Section Navigation)
- */
-function showModule(sectionId) {
-  // 1. รายการ Section ทั้งหมดในระบบ
-  const sections = [
-    'mainMenuSection', 
-    'salesModuleSection', 
-    'expenseModuleSection', 
-    'billingModuleSection', 
-    'claimModuleSection',
-    'oilStockModuleSection',
-    'financialSummaryModuleSection',
-    'paymentManagementModuleSection',
-    'customerSalesReportModuleSection',
-    'receiptModuleSection',
-    'monthlyExpenseReportModuleSection'
-  ];
-  
-  // 2. ซ่อนทุก Section และปลดคลาส d-none
-  sections.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.style.display = 'none';
-      el.classList.remove('d-none');
-    }
-  });
-
-  // 3. แสดง Section ที่เลือก
-  const target = document.getElementById(sectionId);
-  if (target) {
-    target.style.display = 'block';
-    target.classList.remove('d-none');
-  }
-
-  // 4. จัดการแสดง/ซ่อน ปุ่ม Home (กลับหน้าหลัก)
-  const navBtnHome = document.getElementById('navBtnHome');
-  if (navBtnHome) {
-    if (sectionId === 'mainMenuSection') {
-      navBtnHome.classList.add('d-none');
-    } else {
-      navBtnHome.classList.remove('d-none');
-    }
-  }
-
-  // 5. โหลดข้อมูลตามโมดูลที่เปิดอย่างปลอดภัย (เช็คฟังก์ชันก่อนเรียก)
-  try {
-    if (sectionId === 'salesModuleSection') {
-      if (typeof loadBuyers === 'function') loadBuyers();
-      if (typeof updateSaleNoPreview === 'function') updateSaleNoPreview();
-      if (typeof loadSalesData === 'function') loadSalesData();
-    } else if (sectionId === 'expenseModuleSection') {
-      const today = new Date().toISOString().split('T')[0];
-      const dateInput = document.getElementById('expenseDate');
-      if (dateInput) dateInput.value = today;
-
-      if (typeof updateExpenseNoPreview === 'function') updateExpenseNoPreview();
-      if (typeof loadPayRecords === 'function') loadPayRecords();
-      if (typeof loadTransferAccounts === 'function') loadTransferAccounts();
-      if (typeof loadExpenseData === 'function') loadExpenseData();
-    } else if (sectionId === 'billingModuleSection') {
-      if (typeof setupMonthYearDropdowns === 'function') {
-        setupMonthYearDropdowns('filterBillStartMonth', 'filterBillStartYear', 'filterBillEndMonth', 'filterBillEndYear');
-      }
-      if (typeof loadBillingData === 'function') loadBillingData(); 
-    } else if (sectionId === 'claimModuleSection') {
-      if (typeof setupMonthYearDropdowns === 'function') {
-        setupMonthYearDropdowns('filterClaimStartMonth', 'filterClaimStartYear', 'filterClaimEndMonth', 'filterClaimEndYear');
-      }
-      if (typeof loadClaimData === 'function') loadClaimData();
-    } else if (sectionId === 'oilStockModuleSection') {
-      if (typeof loadOilStockData === 'function') loadOilStockData();
-    } else if (sectionId === 'financialSummaryModuleSection') {
-      if (typeof loadFinancialSummaryData === 'function') loadFinancialSummaryData();
-    } else if (sectionId === 'paymentManagementModuleSection') {
-      if (typeof loadPaymentManagementData === 'function') loadPaymentManagementData();
-    } else if (sectionId === 'customerSalesReportModuleSection') {
-      if (typeof loadCustomerSalesReport === 'function') loadCustomerSalesReport();
-    } else if (sectionId === 'receiptModuleSection') {
-      const today = new Date().toISOString().split('T')[0];
-      const rcpEndDate = document.getElementById('rcpEndDate');
-      if (rcpEndDate && !rcpEndDate.value) {
-        rcpEndDate.value = today;
-      }
-      if (typeof loadUnreceiptedData === 'function') loadUnreceiptedData();
-    } else if (sectionId === 'monthlyExpenseReportModuleSection') {
-      if (typeof initMonthlyExpenseReport === 'function') initMonthlyExpenseReport();
-    }
-  } catch (err) {
-    console.error(`❌ Error loading module (${sectionId}):`, err);
   }
 }
 

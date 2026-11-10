@@ -181,7 +181,6 @@ async function saveSaleRecord(data) {
     let trackerPrefix = '';
     let trackerNumber = 0;
 
-    // 1. รายการใหม่: สร้างเลข saleNo และอัปเดต tracker
     if (!isUpdate) {
       const saleNoInfo = await getNextSaleNo(data.date);
       if (saleNoInfo && saleNoInfo.success) {
@@ -216,7 +215,7 @@ async function saveSaleRecord(data) {
       date: formattedDate,
       buyerName: data.buyerName || '',
       itemType: data.itemType || 'น้ำมัน',
-      itemName: data.itemName || 'น้ำมัน',
+      itemName: data.itemName || '',
       pricePerLiter: safeNum(data.pricePerLiter),
       liters: safeNum(data.liters),
       qty: safeNum(data.qty),
@@ -224,6 +223,7 @@ async function saveSaleRecord(data) {
       precision: safeInt(data.precision, 2),
       totalAmount: safeNum(data.totalAmount),
       paymentType: data.paymentType || 'เงินสด',
+      paymentStatus: data.paymentType === 'เงินเชื่อ' ? 'unpaid' : 'paid',
       remarks: data.remarks || '',
       recordedBy: data.recordedBy || (window.currentUser ? window.currentUser.username : 'system'),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -233,18 +233,14 @@ async function saveSaleRecord(data) {
       payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
       payload.isBilled = false;
       payload.isReceiptIssued = false;
-      payload.paymentStatus = data.paymentType === 'เงินเชื่อ' ? 'unpaid' : 'paid';
     }
 
-    // 2. บันทึกลง Firestore (sales_records)
     await db.collection('sales_records').doc(docId).set(payload, { merge: true });
 
-    // 3. อัปเดตตัวนับเลขเอกสารถ้าเป็นรายการใหม่
     if (!isUpdate && trackerPrefix && trackerNumber) {
       await updateSalesNoTracker(trackerPrefix, trackerNumber);
     }
 
-    // 4. ⛽ ตัดสต็อกน้ำมันอัตโนมัติ (ส่วนที่เพิ่มเข้ามาให้สมบูรณ์)
     const isFuelSale = (payload.itemType === 'น้ำมัน' || (typeof getFuelDocId === 'function' && getFuelDocId(payload.itemName))) && payload.liters > 0;
     if (isFuelSale && typeof updateStockOnFuelSale === 'function') {
       try {
@@ -254,7 +250,6 @@ async function saveSaleRecord(data) {
       }
     }
 
-    // 5. 👤 อัปเดตยอดขายสะสมของลูกค้าใน collection 'buyer'
     if (data.buyerName && typeof updateBuyerSalesSummary === 'function') {
       try {
         await updateBuyerSalesSummary(
@@ -269,12 +264,7 @@ async function saveSaleRecord(data) {
       }
     }
 
-    return {
-      success: true,
-      message: 'บันทึกสำเร็จ',
-      saleNo: saleNo,
-      docId: docId
-    };
+    return { success: true, message: 'บันทึกสำเร็จ', saleNo: saleNo, docId: docId };
   } catch (err) {
     console.error("❌ Error in saveSaleRecord:", err);
     return { success: false, message: err.message };
@@ -298,6 +288,7 @@ async function getSalesRecordsRange(startDateStr, endDateStr, limitCount = 3000)
       records.push({
         id: doc.id,
         saleNo: f.saleNo || '',
+        receiptNo: f.receiptNo || '',
         date: f.date || '',
         buyerName: f.buyerName || '',
         itemType: f.itemType || 'น้ำมัน',
@@ -309,13 +300,14 @@ async function getSalesRecordsRange(startDateStr, endDateStr, limitCount = 3000)
         precision: f.precision !== undefined ? Number(f.precision) : 2,
         totalAmount: Number(f.totalAmount || 0),
         paymentType: f.paymentType || 'เงินสด',
+        paymentStatus: f.paymentStatus || (f.paymentType === 'เงินเชื่อ' ? 'unpaid' : 'paid'),
+        isBilled: f.isBilled || false,
+        isReceiptIssued: f.isReceiptIssued || false,
         remarks: f.remarks || ''
       });
     });
 
-    // จัดเรียงวันที่จากใหม่ไปเก่า
     records.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-
     return { success: true, data: records };
   } catch (err) {
     console.error("❌ Error in getSalesRecordsRange:", err);
@@ -876,4 +868,406 @@ async function updateOilStockParentSummaryWithInitial(docId, initialStockVal) {
   }, { merge: true });
 
   await updateOilStockParentSummary(docId);
+}
+
+// ==================== BILLING SYSTEM HELPERS ====================
+
+// 🟢 1. ดึงรายการขายเงินเชื่อที่ยังไม่ได้ออกใบวางบิล (isBilled != true)
+async function getUnpaidSalesRecords(startDateStr, endDateStr, buyerFilter = 'ALL') {
+  try {
+    const startFormatted = startDateStr ? toStandardYYYYMMDD(startDateStr) : "";
+    const endFormatted = endDateStr ? toStandardYYYYMMDD(endDateStr) : "";
+
+    // 🟢 เติม .orderBy('date', 'desc') เพื่อให้ match กับ Index (isBilled ↑, date ↓) บน Firebase Console
+    let query = db.collection('sales_records')
+      .where('isBilled', '==', false)
+      .orderBy('date', 'desc');
+
+    if (startFormatted) query = query.where('date', '>=', startFormatted);
+    if (endFormatted) query = query.where('date', '<=', endFormatted);
+
+    const snapshot = await query.limit(3000).get();
+    const records = [];
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const pType = String(data.paymentType || '').trim();
+      const pStatus = String(data.paymentStatus || '').toLowerCase();
+
+      // กรองเฉพาะรายการที่เป็นเงินเชื่อ หรือสถานะยังไม่ชำระ (unpaid)
+      const isUnpaid = (pType === 'เงินเชื่อ' || pStatus === 'unpaid');
+
+      if (isUnpaid) {
+        if (buyerFilter === 'ALL' || (data.buyerName && data.buyerName.trim() === buyerFilter.trim())) {
+          records.push({ id: doc.id, ...data });
+        }
+      }
+    });
+
+    return { success: true, data: records };
+  } catch (err) {
+    console.error("❌ Error in getUnpaidSalesRecords:", err);
+    return { success: false, message: err.message, data: [] };
+  }
+}
+
+// 🟢 2. ดึงข้อมูลลูกค้าตามชื่อ (สำหรับใส่ใน Modal Preview)
+async function getBuyerByName(buyerName) {
+  try {
+    if (!buyerName) return { success: false, data: {} };
+    const cleanName = String(buyerName).trim();
+    
+    const snap = await db.collection('buyer').where('name', '==', cleanName).limit(1).get();
+    if (!snap.empty) {
+      return { success: true, data: snap.docs[0].data() };
+    }
+
+    const snapFull = await db.collection('buyer').where('fullname', '==', cleanName).limit(1).get();
+    if (!snapFull.empty) {
+      return { success: true, data: snapFull.docs[0].data() };
+    }
+
+    return { success: true, data: { name: cleanName, fullname: cleanName, taxid: '-', address: '-' } };
+  } catch (err) {
+    return { success: false, message: err.message, data: {} };
+  }
+}
+
+// 🟢 3. รันเลขที่ใบวางบิลถัดไป (เช่น SBBS-0001)
+async function getNextBillNo() {
+  try {
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const yearBE = String(now.getFullYear() + 543).slice(-2);
+    const prefix = `SBBS${month}${yearBE}`;
+
+    const trackerDoc = await db.collection('bill_no').doc('current').get();
+    let lastPrefix = "", lastNumber = 0;
+    if (trackerDoc.exists) {
+      const data = trackerDoc.data();
+      lastPrefix = data.last_prefix || "";
+      lastNumber = Number(data.last_number || 0);
+    }
+
+    const nextNumber = (lastPrefix === prefix) ? lastNumber + 1 : 1;
+    const billNo = `${prefix}-${String(nextNumber).padStart(4, '0')}`;
+    return { success: true, billNo: billNo, prefix: prefix, number: nextNumber };
+  } catch (err) {
+    return { success: false, message: err.message, billNo: 'SBBS-0001' };
+  }
+}
+
+// 🟢 4. ยืนยันออกใบวางบิล (บันทึกลง collection 'billing_notes' และอัปเดตสถานะ isBilled = true)
+async function confirmBilling(saleIds, billDateStr, billingData) {
+  try {
+    if (!Array.isArray(saleIds) || saleIds.length === 0) {
+      return { success: false, message: 'กรุณาเลือกอย่างน้อย 1 รายการ' };
+    }
+
+    const billNoInfo = await getNextBillNo();
+    const billNo = billNoInfo.billNo;
+
+    const payload = {
+      billNo: billNo,
+      billDate: billDateStr,
+      buyerName: billingData.buyerName || '-',
+      buyerTaxId: billingData.buyerTaxId || '-',
+      buyerAddress: billingData.buyerAddress || '-',
+      buyerRemark: billingData.buyerRemark || '-',
+      subtotal: Number(billingData.subtotal || 0),
+      vatAmount: Number(billingData.vatAmount || 0),
+      grandTotal: Number(billingData.grandTotal || 0),
+      saleIds: saleIds,
+      saleNos: billingData.saleNos || [],
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    // บันทึกลง billing_notes
+    await db.collection('billing_notes').doc(billNo.replace(/\//g, "-")).set(payload);
+
+    // อัปเดตตัวรันเลข bill_no
+    if (billNoInfo.prefix && billNoInfo.number) {
+      await db.collection('bill_no').doc('current').set({
+        last_prefix: billNoInfo.prefix,
+        last_number: billNoInfo.number
+      }, { merge: true });
+    }
+
+    // อัปเดตรายการขายใน sales_records ว่าถูกวางบิลแล้ว
+    const batch = db.batch();
+    saleIds.forEach(id => {
+      const ref = db.collection('sales_records').doc(String(id));
+      batch.update(ref, {
+        isBilled: true,
+        billNo: billNo,
+        billedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    });
+    await batch.commit();
+
+    return { success: true, billNo: billNo, message: 'ออกใบวางบิลสำเร็จ' };
+  } catch (err) {
+    console.error("❌ Error in confirmBilling:", err);
+    return { success: false, message: err.message };
+  }
+}
+
+// ==================== EXPENSE SYSTEM HELPERS ====================
+
+// 🟢 1. สร้างเลขที่บิลค่าใช้จ่ายถัดไป (เช่น SBEXP1069-0001)
+async function getNextExpenseNo(dateStr) {
+  try {
+    const stdDate = toStandardYYYYMMDD(dateStr || new Date().toISOString().split('T')[0]);
+    const parts = stdDate.split('/');
+    
+    let month = String(new Date().getMonth() + 1).padStart(2, '0');
+    let yearBE = String(new Date().getFullYear() + 543).slice(-2);
+
+    if (parts.length === 3) {
+      month = String(parts[1]).padStart(2, '0');
+      let yr = parseInt(parts[0], 10);
+      if (yr < 2400) yr += 543;
+      yearBE = String(yr).slice(-2);
+    }
+
+    const currentPrefix = `SBEXP${month}${yearBE}`;
+
+    const trackerDoc = await db.collection('expense_no').doc('current').get();
+    let lastPrefix = "", lastNumber = 0;
+    if (trackerDoc.exists) {
+      const data = trackerDoc.data();
+      lastPrefix = data.last_prefix || "";
+      lastNumber = Number(data.last_number || 0);
+    }
+    const nextNumber = (lastPrefix === currentPrefix) ? lastNumber + 1 : 1;
+    const fullExpenseNo = `${currentPrefix}-${String(nextNumber).padStart(4, '0')}`;
+    return { success: true, expenseNo: fullExpenseNo, prefix: currentPrefix, number: nextNumber };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
+async function updateExpenseNoTracker(prefix, number) {
+  try {
+    await db.collection('expense_no').doc('current').set({ last_prefix: prefix, last_number: number }, { merge: true });
+  } catch (e) {
+    console.error("Error updating expense tracker:", e);
+  }
+}
+
+// 🟢 2. บันทึก / แก้ไขรายการค่าใช้จ่าย (expense_records)
+async function saveExpenseRecord(data) {
+  try {
+    if (!data) return { success: false, message: 'ไม่พบข้อมูลที่ส่งมาบันทึก' };
+
+    const isUpdate = !!data.docId;
+    let expenseNo = data.expenseNo || '';
+    let trackerPrefix = '', trackerNumber = 0;
+
+    if (!isUpdate) {
+      const expNoInfo = await getNextExpenseNo(data.date);
+      if (expNoInfo && expNoInfo.success) {
+        expenseNo = expNoInfo.expenseNo;
+        trackerPrefix = expNoInfo.prefix;
+        trackerNumber = expNoInfo.number;
+      }
+    }
+
+    const docId = isUpdate ? data.docId : expenseNo.replace(/\//g, "-");
+    const formattedDate = toStandardYYYYMMDD(data.date);
+    const formattedTransferDate = data.transferDate ? toStandardYYYYMMDD(data.transferDate) : '';
+
+    const payload = {
+      expenseNo: expenseNo,
+      date: formattedDate,
+      category: data.category || '',
+      itemName: data.itemName || '',
+      payeeName: data.payeeName || '',
+      pricePerLiter: Number(data.pricePerLiter || 0),
+      liters: Number(data.liters || 0),
+      amount: Number(data.amount || 0),
+      amountBeforeVat: Number(data.amountBeforeVat || 0),
+      vatAmount: Number(data.vatAmount || 0),
+      totalWithVat: Number(data.totalWithVat || 0),
+      paymentType: data.paymentType || '',
+      transferAccount: data.transferAccount || '',
+      transferDate: formattedTransferDate,
+      remarks: data.remarks || '',
+      recordedBy: data.recordedBy || 'system',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    if (!isUpdate) {
+      payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      payload.isRequisition = false;
+      payload.requisitionNo = '';
+      payload.transferNo = '';
+    }
+
+    await db.collection('expense_records').doc(docId).set(payload, { merge: true });
+
+    if (!isUpdate && trackerPrefix && trackerNumber) {
+      await updateExpenseNoTracker(trackerPrefix, trackerNumber);
+    }
+
+    // ⛽ หากเป็นรายการซื้อน้ำมัน ให้ส่งไปอัปเดตสต็อกขาเข้า
+    const categoryVal = String(payload.category || '').trim();
+    if ((categoryVal === 'ซื้อน้ำมัน ท่าทอง' || categoryVal === 'ซื้อน้ำมัน P.C. Siam') && payload.liters > 0) {
+      if (typeof updateStockOnFuelPurchase === 'function') {
+        try {
+          await updateStockOnFuelPurchase(payload, isUpdate);
+        } catch (stockErr) {
+          console.warn("⚠️ บันทึกค่าใช้จ่ายสำเร็จ แต่อัปเดตสต็อกน้ำมันเข้าผิดพลาด:", stockErr);
+        }
+      }
+    }
+
+    return { success: true, message: 'บันทึกสำเร็จ', expenseNo: expenseNo, docId: docId };
+  } catch (err) {
+    console.error("❌ Error in saveExpenseRecord:", err);
+    return { success: false, message: err.message };
+  }
+}
+
+// 🟢 3. ดึงรายการค่าใช้จ่ายตามช่วงวันที่
+async function getExpenseRecordsRange(startDateStr, endDateStr, limitCount = 3000) {
+  try {
+    const startFormatted = startDateStr ? toStandardYYYYMMDD(startDateStr) : "";
+    const endFormatted = endDateStr ? toStandardYYYYMMDD(endDateStr) : "";
+
+    let query = db.collection('expense_records');
+    if (startFormatted) query = query.where('date', '>=', startFormatted);
+    if (endFormatted) query = query.where('date', '<=', endFormatted);
+
+    const snapshot = await query.limit(limitCount).get();
+    const records = [];
+    snapshot.forEach(doc => records.push({ id: doc.id, ...doc.data() }));
+    records.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    return { success: true, data: records };
+  } catch (err) {
+    console.error("❌ Error in getExpenseRecordsRange:", err);
+    return { success: false, message: err.message, data: [] };
+  }
+}
+
+// 🟢 4. ลบรายการค่าใช้จ่าย
+async function deleteExpenseRecord(docId) {
+  try {
+    const docRef = db.collection('expense_records').doc(docId);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) return { success: false, message: 'ไม่พบรายการค่าใช้จ่าย' };
+
+    const expData = docSnap.data();
+
+    // 1. ลบเอกสารรายการค่าใช้จ่าย
+    await docRef.delete();
+
+    // 2. ⛽ หากเป็นรายการซื้อน้ำมัน ให้ลบออกจาก oil_stock และปรับลดยอดสะสมย้อนกลับ
+    const category = String(expData.category || '').trim();
+    const itemName = String(expData.itemName || '').trim();
+    const liters = Number(expData.liters || 0);
+    const isFuel = (category.includes('ซื้อน้ำมัน') || itemName.includes('95') || itemName.includes('ดีเซล')) && liters > 0;
+
+    if (isFuel && typeof reverseStockOnFuelPurchase === 'function') {
+      await reverseStockOnFuelPurchase(expData);
+    }
+
+    return { success: true, message: 'ลบรายการเรียบร้อยแล้ว' };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
+// 🟢 5. จัดการหมวดหมู่ค่าใช้จ่าย (pay_records)
+async function getPayRecords() {
+  try {
+    const snapshot = await db.collection('pay_record').get();
+    const records = [];
+    snapshot.forEach(doc => {
+      const d = doc.data();
+      if (d.name) records.push({ id: doc.id, name: d.name });
+    });
+    records.sort((a, b) => a.name.localeCompare(b.name, 'th'));
+
+    // เพิ่มหมวดตั้งต้นซื้อน้ำมันถ้ายังไม่มีในระบบ
+    const defaultCategories = ["ซื้อน้ำมัน ท่าทอง", "ซื้อน้ำมัน P.C. Siam"];
+    defaultCategories.forEach(cat => {
+      if (!records.some(r => r.name === cat)) {
+        records.unshift({ id: cat, name: cat });
+      }
+    });
+
+    return { success: true, data: records };
+  } catch (err) {
+    return { success: false, message: err.message, data: [] };
+  }
+}
+
+async function savePayRecord(payload) {
+  try {
+    if (!payload || !payload.name) return { success: false, message: 'ระบุชื่อรายการ' };
+    const docRef = await db.collection('pay_records').add({
+      name: payload.name.trim(),
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    return { success: true, id: docRef.id };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
+// 🟢 6. ดึงรายชื่อบัญชีโอนเงิน (transfer_accounts)
+async function getTransferAccounts() {
+  try {
+    const snapshot = await db.collection('transfer').get();
+    const accounts = [];
+    snapshot.forEach(doc => {
+      const d = doc.data();
+      if (d.name) accounts.push({ id: doc.id, name: d.name });
+    });
+
+    if (accounts.length === 0) {
+      accounts.push({ id: 'scb', name: 'ธนาคารไทยพาณิชย์ (SCB)' });
+      accounts.push({ id: 'kbank', name: 'ธนาคารกสิกรไทย (KBANK)' });
+      accounts.push({ id: 'cash', name: 'เงินสดหน้าร้าน' });
+    }
+
+    return { success: true, data: accounts };
+  } catch (err) {
+    return { success: false, data: [
+      { id: 'scb', name: 'ธนาคารไทยพาณิชย์ (SCB)' },
+      { id: 'kbank', name: 'ธนาคารกสิกรไทย (KBANK)' }
+    ]};
+  }
+}
+
+async function reverseStockOnFuelPurchase(expenseRecord) {
+  try {
+    const itemName = String(expenseRecord.itemName || expenseRecord.category || '').trim();
+    let fuelType = null;
+    if (itemName.includes('95')) fuelType = '95';
+    else if (itemName.includes('ดีเซล') || itemName.toLowerCase().includes('diesel')) fuelType = 'diesel';
+
+    if (!fuelType) return;
+
+    const cleanExpenseNo = safeDocId(expenseRecord.expenseNo);
+    const importDocRef = db.collection('oil_stock').doc(fuelType).collection('imports').doc(cleanExpenseNo);
+    const oldSnap = await importDocRef.get();
+
+    if (!oldSnap.exists) return;
+
+    const oldData = oldSnap.data();
+    const oldLiters = Number(oldData.liters || 0);
+    const oldAmount = Number(oldData.amount || 0);
+    const recDate = oldData.date || expenseRecord.date;
+
+    // ลบออกจาก imports sub-collection
+    await importDocRef.delete();
+
+    // หักลดยอดใน summaries (ใส่ delta เป็นค่าลบ)
+    await updateImportSummaries(fuelType, recDate, 0, 0, oldLiters, oldAmount, true);
+    await updateOilStockParentSummary(fuelType);
+  } catch (err) {
+    console.error("❌ Error in reverseStockOnFuelPurchase:", err);
+  }
 }

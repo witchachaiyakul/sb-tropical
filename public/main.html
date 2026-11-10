@@ -24,7 +24,7 @@
 
       <div class="d-flex align-items-center gap-3">
         <!-- ปุ่มกลับหน้าหลัก -->
-        <button id="navBtnHome" class="btn btn-outline-light btn-sm d-none" onclick="showModule('mainMenuSection')">
+        <button id="navBtnHome" class="btn btn-outline-light btn-sm d-none" onclick="window.location.href='main.html'">
           <i class="bi bi-house-door-fill me-1"></i> หน้าหลัก
         </button>
 
@@ -35,7 +35,7 @@
         </div>
 
         <!-- ปุ่มออกจากระบบ -->
-        <button class="btn btn-danger btn-sm shadow-sm" onclick="logout()">
+        <button class="btn btn-danger btn-sm shadow-sm" onclick="window.location.href='login.html'">
           <i class="bi bi-box-arrow-right me-1"></i> ออกจากระบบ
         </button>
       </div>
@@ -43,7 +43,7 @@
   </nav>
 
   <!-- ==================== MAIN MENU SECTION ==================== -->
-  <div id="mainMenuSection" style="display: none;">
+  <div id="mainMenuSection" class="container-fluid py-4" style="min-height: calc(100vh - 56px);">
     <div class="header-banner text-center py-4 bg-light mb-4 border-bottom shadow-sm">
       <h2 class="fw-bold mb-1">ระบบบริหารจัดการ SB Tropical</h2>
       <p class="lead mb-0 small opacity-75">เลือกเมนูการทำงานที่ต้องการใช้งาน</p>
@@ -65,7 +65,7 @@
 
         <!-- เมนูที่ 2: บันทึกค่าใช้จ่าย -->
         <div class="col-12 col-md-6 col-lg-4">
-          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('expenseModuleSection')">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="window.location.href='expense.html'">
             <div class="menu-icon-box text-primary fs-1 mb-2">
               <i class="bi bi-receipt-cutoff"></i>
             </div>
@@ -74,20 +74,20 @@
           </div>
         </div>
 
-        <!-- เมนูที่ 3: วางบิล -->
+        <!-- เมนูออกใบวางบิล -->
         <div class="col-12 col-md-6 col-lg-4">
-          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('billingModuleSection')">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="window.location.href='bill.html'">
             <div class="menu-icon-box text-primary fs-1 mb-2">
-              <i class="bi bi-receipt"></i>
+              <i class="bi bi-file-earmark-spreadsheet-fill"></i>
             </div>
-            <h5 class="fw-bold text-dark mb-2">วางบิล</h5>
-            <p class="text-muted small mb-0">วางบิลลูกค้าเงินเชื่อที่ยังไม่ออกบิล</p>
+            <h5 class="fw-bold text-dark mb-2">ออกใบวางบิล</h5>
+            <p class="text-muted small mb-0">จัดการและพิมพ์ใบวางบิลสำหรับลูกหนี้เงินเชื่อ</p>
           </div>
         </div>
 
         <!-- เมนูที่ 4: ตั้งเบิกค่าใช้จ่าย -->
         <div class="col-12 col-md-6 col-lg-4">
-          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('claimModuleSection')">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="window.location.href='claim.html'">
             <div class="menu-icon-box text-success fs-1 mb-2">
               <i class="bi bi-cash-stack"></i>
             </div>
@@ -109,7 +109,7 @@
         
         <!-- เมนูที่ 6: อัปเดตการชำระเงิน/โอนจ่าย -->
         <div class="col-12 col-md-6 col-lg-4">
-          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('paymentManagementModuleSection')">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="window.location.href='payment.html'">
             <div class="menu-icon-box text-primary fs-1 mb-2">
               <i class="bi bi-wallet2"></i>
             </div>
@@ -120,7 +120,7 @@
 
         <!-- เมนูที่ 7: ออกใบเสร็จรับเงิน -->
         <div class="col-12 col-md-6 col-lg-4">
-          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('receiptModuleSection')">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="window.location.href='receipt.html'">
             <div class="menu-icon-box text-primary fs-1 mb-2">
               <i class="bi bi-file-earmark-check-fill"></i>
             </div>
@@ -131,7 +131,7 @@
 
         <!-- เมนูที่ 8: สรุปยอดรายรับรายจ่าย -->
         <div class="col-12 col-md-6 col-lg-4">
-          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('financialSummaryModuleSection')">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="window.location.href='financial-summary.html'">
             <div class="menu-icon-box text-success fs-1 mb-2">
               <i class="bi bi-graph-up-arrow"></i>
             </div>
@@ -142,7 +142,7 @@
 
         <!-- เมนูที่ 9: รายงานยอดขายตามลูกค้า -->
         <div class="col-12 col-md-6 col-lg-4">
-          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('customerSalesReportModuleSection')">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="window.location.href='customer-sales.html'">
             <div class="menu-icon-box text-success fs-1 mb-2">
               <i class="bi bi-person-lines-fill"></i>
             </div>
@@ -153,7 +153,7 @@
 
         <!-- เมนูที่ 10: รายงานสรุปยอดค่าใช้จ่ายรายเดือน -->
         <div class="col-12 col-md-6 col-lg-4">
-          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="showModule('monthlyExpenseReportModuleSection')">
+          <div class="card menu-card p-4 text-center h-100 shadow-sm cursor-pointer" onclick="window.location.href='monthly-expense.html'">
             <div class="menu-icon-box text-danger fs-1 mb-2">
               <i class="bi bi-calendar3-range-fill"></i>
             </div>
@@ -181,16 +181,5 @@
   <script src="js/login.js"></script>
   <script src="js/main.js"></script>
 
-  <!-- 🟡 5. สคริปต์ประจำโมดูลต่างๆ -->
-  <script src="js/sale-record.js"></script>
-  <script src="js/expenseModuleSection.js"></script>
-  <script src="js/billingModuleSection.js"></script>
-  <script src="js/claimModuleSection.js"></script>
-  <script src="js/stock.js"></script>
-  <script src="js/paymentManagementModuleSection.js"></script>
-  <script src="js/receiptModuleSection.js"></script>
-  <script src="js/financialSummaryModuleSection.js"></script>
-  <script src="js/customerSalesReportModuleSection.js"></script>
-  <script src="js/monthlyExpenseReportModuleSection.js"></script>
 </body>
 </html>

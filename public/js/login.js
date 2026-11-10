@@ -31,7 +31,6 @@ function initLoginSystem() {
     // อัปเดตข้อมูลผู้ใช้บน Header Navbar
     updateUserHeaderUI();
 
-    if (typeof showModule === 'function') showModule('mainMenuSection');
     return;
   }
 
@@ -55,7 +54,6 @@ function initLoginSystem() {
       // อัปเดตข้อมูลผู้ใช้บน Header Navbar
       updateUserHeaderUI();
 
-      if (typeof showModule === 'function') showModule('mainMenuSection');
       return;
     } catch (e) {
       sessionStorage.removeItem('sbTropicalUser');
@@ -121,7 +119,6 @@ async function handleLoginSubmit(e) {
 
       updateUserHeaderUI();
 
-      if (typeof showModule === 'function') showModule('mainMenuSection');
     } else {
       if (typeof Swal !== 'undefined') {
         Swal.fire('เข้าสู่ระบบไม่สำเร็จ', res ? res.message : 'ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง', 'error');
