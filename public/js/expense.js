@@ -34,6 +34,30 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 });
 
+// 🟢 ฟังก์ชันเปิด Modal สำหรับเพิ่มรายการใหม่
+function openAddExpenseModal() {
+  resetExpenseForm();
+  const modalEl = document.getElementById('expenseFormModal');
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  document.getElementById('expenseFormModalLabel').innerHTML = '<i class="bi bi-plus-circle-fill me-2"></i>บันทึกรายการค่าใช้จ่าย';
+  modal.show();
+}
+
+// 🟢 ฟังก์ชันเปิด Modal สำหรับแก้ไขรายการ
+function openEditExpenseModal() {
+  const modalEl = document.getElementById('expenseFormModal');
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  document.getElementById('expenseFormModalLabel').innerHTML = '<i class="bi bi-pencil-square me-2"></i>แก้ไขรายการค่าใช้จ่าย';
+  modal.show();
+}
+
+// 🟢 ฟังก์ชันปิด Modal หลังบันทึกสำเร็จ
+function hideExpenseModal() {
+  const modalEl = document.getElementById('expenseFormModal');
+  const modal = bootstrap.Modal.getInstance(modalEl);
+  if (modal) modal.hide();
+}
+
 // ==================== HELPER FUNCTIONS ====================
 function formatDateForInput(dateStr) {
   if (!dateStr) return new Date().toISOString().split('T')[0];
@@ -271,11 +295,14 @@ function resetExpenseForm() {
 
   document.getElementById('btnSaveExpense').innerHTML = `<i class="bi bi-save me-1"></i> บันทึกข้อมูลค่าใช้จ่าย`;
 
+  const modalTitleEl = document.getElementById('expenseFormModalLabel');
+  if (modalTitleEl) {
+    modalTitleEl.innerHTML = '<i class="bi bi-plus-circle-fill me-2"></i>บันทึกรายการค่าใช้จ่าย';
+  }
+
   toggleExpenseCategory();
   toggleExpensePayType();
   updateExpenseNoPreview();
-
-  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ==================== DATA LOAD & SAVE ====================
@@ -365,8 +392,8 @@ function renderExpenseTable(data) {
       <td class="text-center">${payBadge}${reqBadge}</td>
       <td class="small text-muted">${item.remarks || '-'}</td>
       <td class="text-center">
-        <button class="btn btn-sm btn-outline-primary me-1" onclick="editExpenseRecord('${item.id}')"><i class="bi bi-pencil"></i></button>
-        <button class="btn btn-sm btn-outline-danger" onclick="confirmDeleteExpense('${item.id}')"><i class="bi bi-trash"></i></button>
+        <button class="btn btn-sm btn-outline-primary me-1" onclick="editExpenseRecord('${item.id}')" title="แก้ไข"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-sm btn-outline-danger" onclick="confirmDeleteExpense('${item.id}')" title="ลบ"><i class="bi bi-trash"></i></button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -421,6 +448,9 @@ async function handleExpenseFormSubmit(e) {
   try {
     const res = await saveExpenseRecord(payload);
     if (res && res.success) {
+      // 🟢 ปิด Modal ฟอร์มบันทึกหลังบันทึกสำเร็จ
+      hideExpenseModal();
+
       if (typeof Swal !== 'undefined') {
         Swal.fire({ 
           icon: 'success', 
@@ -502,19 +532,23 @@ function editExpenseRecord(id) {
   }
 
   document.getElementById('btnSaveExpense').innerHTML = `<i class="bi bi-pencil-square me-1"></i> อัปเดตข้อมูลค่าใช้จ่าย`;
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  // 🟢 สั่งเปิด Modal Popup เพื่อแก้ไขรายการ
+  openEditExpenseModal();
 }
 
-// 🟢 เปลี่ยนชื่อฟังก์ชันเป็น confirmDeleteExpense เพื่อป้องกันการเรียกซ้ำไม่รู้จบ
+// 🟢 ฟังก์ชันยืนยันการลบ (แสดง SweetAlert2 Popup ยืนยัน)
 async function confirmDeleteExpense(id) {
   if (typeof Swal === 'undefined') return;
 
   const result = await Swal.fire({
     title: 'ยืนยันการลบ?',
+    text: 'เมื่อลบแล้วจะไม่สามารถคืนค่ารายการนี้ได้',
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#d33',
-    confirmButtonText: 'ลบ',
+    cancelButtonColor: '#6c757d',
+    confirmButtonText: 'ลบรายการ',
     cancelButtonText: 'ยกเลิก'
   });
 

@@ -1414,3 +1414,329 @@ async function confirmClaim(expenseIds, claimDateStr, claimData) {
     return { success: false, message: err.message };
   }
 }
+
+// ==================== PAYMENT SYSTEM HELPERS ====================
+
+// 🟢 1. ดึงรายการขายเงินเชื่อรายเดือน (Collection: 'sales_records')
+async function getCreditSalesByMonth(yearMonthStr, buyerFilter = 'ALL') {
+  try {
+    const parts = yearMonthStr.replace(/-/g, '/').split('/');
+    const yearAD = parts[0];
+    const month = String(parts[1]).padStart(2, '0');
+    
+    const lastDay = new Date(parseInt(yearAD, 10), parseInt(month, 10), 0).getDate();
+    const startDate = `${yearAD}/${month}/01`;
+    const endDate = `${yearAD}/${month}/${String(lastDay).padStart(2, '0')}`;
+
+    let query = db.collection('sales_records');
+    query = query.where('date', '>=', startDate).where('date', '<=', endDate);
+
+    const snapshot = await query.limit(3000).get();
+    const records = [];
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const pType = String(data.paymentType || '').trim();
+      const pStatus = String(data.paymentStatus || '').toLowerCase();
+
+      // กรองเฉพาะรายการที่เป็นเงินเชื่อ หรือสถานะยังไม่ชำระ
+      if (pType === 'เงินเชื่อ' || pStatus === 'unpaid') {
+        const bName = String(data.buyerName || '').trim();
+        if (buyerFilter === 'ALL' || bName === buyerFilter.trim()) {
+          records.push({
+            docId: doc.id,
+            id: doc.id,
+            ...data
+          });
+        }
+      }
+    });
+
+    records.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    return { success: true, data: records };
+  } catch (err) {
+    console.error("❌ Error in getCreditSalesByMonth:", err);
+    return { success: false, message: err.message, data: [] };
+  }
+}
+
+// 🟢 2. อัปเดตสถานะชำระเงินของลูกหนี้เงินเชื่อ (Paid)
+async function updateSalePaymentStatus(docId, paidDate, saleDate) {
+  try {
+    if (!docId) return { success: false, message: 'ไม่พบรหัสเอกสาร (docId)' };
+
+    const cleanDocId = String(docId).replace(/\//g, "-").trim();
+    const docRef = db.collection('sales_records').doc(cleanDocId);
+
+    const updatePayload = {
+      paymentStatus: 'paid',
+      paidDate: paidDate || new Date().toISOString().split('T')[0],
+      paidAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    await docRef.update(updatePayload);
+
+    // 📌 คำนวณสรุปยอดรายเดือนใหม่ (ถ้ามีฟังก์ชันนี้อยู่ในระบบ)
+    if (typeof recalculateMonthlySummary === 'function') {
+      await recalculateMonthlySummary(saleDate || paidDate);
+    }
+
+    return { success: true, message: 'อัปเดตสถานะการชำระเงินเรียบร้อยแล้ว' };
+  } catch (err) {
+    console.error("❌ Error in updateSalePaymentStatus:", err);
+    return { success: false, message: err.message };
+  }
+}
+
+// 🟢 3. ดึงรายการค่าใช้จ่ายบริษัทรายเดือน (Collection: 'expense_records')
+async function getCompanyExpensesByMonth(yearMonthStr) {
+  try {
+    const parts = yearMonthStr.replace(/-/g, '/').split('/');
+    const yearAD = parts[0];
+    const month = String(parts[1]).padStart(2, '0');
+
+    const lastDay = new Date(parseInt(yearAD, 10), parseInt(month, 10), 0).getDate();
+    const startDate = `${yearAD}/${month}/01`;
+    const endDate = `${yearAD}/${month}/${String(lastDay).padStart(2, '0')}`;
+
+    let query = db.collection('expense_records');
+    query = query.where('date', '>=', startDate).where('date', '<=', endDate);
+
+    const snapshot = await query.limit(3000).get();
+    const records = [];
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      records.push({
+        docId: doc.id,
+        id: doc.id,
+        ...data
+      });
+    });
+
+    records.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    return { success: true, data: records };
+  } catch (err) {
+    console.error("❌ Error in getCompanyExpensesByMonth:", err);
+    return { success: false, message: err.message, data: [] };
+  }
+}
+
+// 🟢 4. อัปเดตสถานะการโอนจ่ายค่าใช้จ่ายบริษัท (Transferred)
+async function updateExpenseTransferStatus(docId, transferAccount, transferDate, expDate) {
+  try {
+    if (!docId) return { success: false, message: 'ไม่พบรหัสเอกสาร (docId)' };
+
+    const cleanDocId = String(docId).replace(/\//g, "-").trim();
+    const expRef = db.collection('expense_records').doc(cleanDocId);
+
+    // Step 1: อ่านข้อมูลยอดเงินและรายการเดิม
+    const expDoc = await expRef.get();
+    let amount = 0;
+    let remarks = "โอนจ่ายค่าใช้จ่าย";
+
+    if (expDoc.exists) {
+      const f = expDoc.data();
+      amount = parseFloat(f.totalWithVat || f.amount || 0);
+      remarks = f.payeeName || f.itemName || f.category || remarks;
+    }
+
+    // Step 2: อัปเดตข้อมูลลง expense_records
+    const finalTransferDate = transferDate || new Date().toISOString().split('T')[0];
+    const updatePayload = {
+      paymentType: 'เงินโอน',
+      transferAccount: transferAccount || '',
+      transferDate: finalTransferDate,
+      transferStatus: 'transferred',
+      transferredAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    await expRef.update(updatePayload);
+
+    // Step 3: บันทึกข้อมูลลง Collection transfer_records
+    try {
+      await db.collection('transfer_records').add({
+        date: finalTransferDate || expDate,
+        fromAccount: transferAccount || '',
+        amount: amount,
+        remarks: remarks,
+        expenseDocId: cleanDocId,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (tErr) {
+      console.warn("⚠️ ไม่สามารถบันทึก transfer_records ได้:", tErr);
+    }
+
+    // Step 4: คำนวณสรุปยอดรายเดือนใหม่ (ถ้ามีฟังก์ชันนี้อยู่ในระบบ)
+    if (typeof recalculateMonthlySummary === 'function') {
+      await recalculateMonthlySummary(expDate || finalTransferDate);
+    }
+
+    return { success: true, message: 'บันทึกเรียบร้อย' };
+  } catch (err) {
+    console.error("❌ Error in updateExpenseTransferStatus:", err);
+    return { success: false, message: err.message };
+  }
+}
+
+// ==================== RECEIPT SYSTEM HELPERS ====================
+
+/**
+ * 🟢 1. ดึงรายการขายที่ยังไม่ได้ออกใบเสร็จรับเงิน (isReceiptIssued != true)
+ */
+async function getUnreceiptedSalesRecords(yearMonthStr, buyerFilter = 'ALL') {
+  try {
+    const parts = yearMonthStr.replace(/-/g, '/').split('/');
+    const yearAD = parts[0];
+    const month = String(parts[1]).padStart(2, '0');
+
+    const lastDay = new Date(parseInt(yearAD, 10), parseInt(month, 10), 0).getDate();
+    const startDate = `${yearAD}/${month}/01`;
+    const endDate = `${yearAD}/${month}/${String(lastDay).padStart(2, '0')}`;
+
+    let query = db.collection('sales_records');
+    query = query.where('date', '>=', startDate).where('date', '<=', endDate);
+
+    const snapshot = await query.limit(3000).get();
+    const records = [];
+
+    snapshot.forEach(doc => {
+      const f = doc.data();
+      const isReceiptIssued = f.isReceiptIssued === true;
+
+      // ข้ามรายการที่ออกใบเสร็จไปแล้ว
+      if (isReceiptIssued) return;
+
+      const buyerName = String(f.buyerName || '').trim();
+
+      // กรองชื่อผู้ซื้อ (ถ้าระบุ)
+      if (buyerFilter && buyerFilter !== 'ALL' && buyerName !== buyerFilter.trim()) return;
+
+      const pricePerLiter = parseFloat(f.pricePerLiter || f.unitPrice || 0);
+      const liters = parseFloat(f.liters || f.qty || 0);
+      const qty = parseFloat(f.qty || liters || 0);
+      const unitPrice = parseFloat(f.unitPrice || pricePerLiter || 0);
+      const totalAmount = parseFloat(f.totalAmount || 0);
+
+      records.push({
+        id: doc.id,
+        docId: doc.id,
+        saleNo: f.saleNo || doc.id,
+        date: f.date || '-',
+        buyerName: buyerName || '-',
+        itemType: f.itemType || 'น้ำมัน',
+        itemName: f.itemName || f.itemType || 'น้ำมัน',
+        pricePerLiter: pricePerLiter,
+        unitPrice: unitPrice,
+        liters: liters,
+        qty: qty,
+        totalAmount: totalAmount,
+        remarks: f.remarks || ''
+      });
+    });
+
+    // เรียงลำดับ: วันที่น้อยไปมาก ➔ เลขที่บิลน้อยไปมาก
+    records.sort((a, b) => {
+      if (a.date !== b.date) {
+        return (a.date || '').localeCompare(b.date || '');
+      }
+      return (a.saleNo || '').localeCompare(b.saleNo || '', undefined, { numeric: true, sensitivity: 'base' });
+    });
+
+    return { success: true, data: records };
+  } catch (err) {
+    console.error("❌ Error in getUnreceiptedSalesRecords:", err);
+    return { success: false, message: err.message, data: [] };
+  }
+}
+
+/**
+ * 🟢 2. ดึงข้อมูลผู้ซื้อทั้งหมด (buyer collection) สำหรับทำ Mapping
+ */
+async function getBuyerMapFromFirestore() {
+  try {
+    const snapshot = await db.collection('buyer').get();
+    const buyerMap = {};
+
+    snapshot.forEach(doc => {
+      const f = doc.data();
+      const name = (f.name || '').trim();
+      if (name) {
+        buyerMap[name] = {
+          name: (f.fullname || name).trim(),
+          addr: (f.address || '').trim(),
+          tax: (f.taxid || '').trim()
+        };
+      }
+    });
+
+    return buyerMap;
+  } catch (err) {
+    console.error("❌ Error fetching buyer collection:", err);
+    return {};
+  }
+}
+
+/**
+ * 🟢 3. เรียก API / Web App สร้างไฟล์ PDF ใบเสร็จรับเงินจาก Google Slides Template
+ */
+async function createBatchReceiptsFromFirestore(selectedSaleIds) {
+  try {
+    if (!selectedSaleIds || !Array.isArray(selectedSaleIds) || selectedSaleIds.length === 0) {
+      return { success: false, message: "กรุณาเลือกรายการที่ต้องการออกใบเสร็จ" };
+    }
+
+    // กรณีเชื่อมต่อผ่าน Endpoint / Function บันทึกออกใบเสร็จ
+    if (typeof callBackendApi === 'function') {
+      return await callBackendApi('createBatchReceiptsFromFirestore', { selectedSaleIds });
+    }
+
+    // กรณีอัปเดตสถานะใน Firestore Client Direct (สำรอง)
+    const batch = db.batch();
+    const todayStr = new Date().toISOString().split('T')[0].replace(/-/g, '/');
+
+    selectedSaleIds.forEach(docId => {
+      const docRef = db.collection('sales_records').doc(docId);
+      batch.update(docRef, {
+        isReceiptIssued: true,
+        receiptDate: todayStr,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    });
+
+    await batch.commit();
+
+    return {
+      success: true,
+      count: selectedSaleIds.length,
+      message: "อัปเดตสถานะออกใบเสร็จเรียบร้อยแล้ว"
+    };
+  } catch (err) {
+    console.error("❌ Error in createBatchReceiptsFromFirestore:", err);
+    return { success: false, message: err.message };
+  }
+}
+
+async function updateSalesReceiptStatusInFirestore(selectedSaleIds) {
+  try {
+    const batch = db.batch();
+    const todayStr = new Date().toISOString().split('T')[0].replace(/-/g, '/');
+
+    selectedSaleIds.forEach(docId => {
+      const docRef = db.collection('sales_records').doc(docId);
+      batch.update(docRef, {
+        isReceiptIssued: true,
+        receiptDate: todayStr,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    });
+
+    await batch.commit();
+    return { success: true };
+  } catch (err) {
+    console.error("❌ Error in updateSalesReceiptStatusInFirestore:", err);
+    return { success: false, message: err.message };
+  }
+}

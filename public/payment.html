@@ -1,140 +1,193 @@
-<section id="paymentManagementModuleSection" class="module-section d-none">
-  <!-- ปุ่มย้อนกลับ -->
-  <div class="d-flex align-items-center mb-3">
-    <button class="btn btn-outline-secondary btn-sm" onclick="showModule('mainMenuSection')">
-      <i class="bi bi-arrow-left"></i> ย้อนกลับหน้าเมนูหลัก
-    </button>
-  </div>
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>บันทึกการชำระเงินและการโอนจ่าย - SB Tropical</title>
 
-  <div class="card shadow-sm border-0 mb-4">
-    <div class="card-header bg-white py-3">
-      <h4 class="fw-bold text-dark mb-0"><i class="bi bi-cash-stack text-primary me-2"></i>บันทึกการชำระเงินและการโอนจ่าย</h4>
+  <!-- CSS Dependencies -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+  <!-- TOP NAVBAR -->
+  <nav class="navbar navbar-expand-lg navbar-dark shadow-sm" style="background-color: var(--sb-primary, #0d6efd);">
+    <div class="container-fluid px-4">
+      <a class="navbar-brand d-flex align-items-center fw-bold" href="main.html">
+        <img src="images/sb.png" alt="SB Logo" height="36" class="me-2 bg-white rounded p-1" onerror="this.src='https://lh3.googleusercontent.com/d/1Z2F5s7RXUAmSgA7bKKTqDKsHxdHGg3Cq'">
+        SB Tropical
+      </a>
+      <div class="d-flex align-items-center gap-3">
+        <a href="main.html" class="btn btn-outline-light btn-sm">
+          <i class="bi bi-house-door-fill me-1"></i> หน้าหลัก
+        </a>
+        <button class="btn btn-danger btn-sm shadow-sm" onclick="logout()">
+          <i class="bi bi-box-arrow-right me-1"></i> ออกจากระบบ
+        </button>
+      </div>
     </div>
-    <div class="card-body">
-      
-      <!-- ตัวกรอง เดือน / พ.ศ. / ชื่อผู้ซื้อ-ผู้รับเงิน และ สถานะ -->
-      <div class="row g-3 mb-4 bg-light p-3 rounded align-items-end">
-        <div class="col-6 col-md-2">
-          <label class="form-label fw-bold mb-1"><i class="bi bi-calendar-month me-1"></i>เลือกเดือน</label>
-          <select id="pmtFilterMonth" class="form-select" onchange="loadPaymentManagementData()">
-            <option value="01">มกราคม</option>
-            <option value="02">กุมภาพันธ์</option>
-            <option value="03">มีนาคม</option>
-            <option value="04">เมษายน</option>
-            <option value="05">พฤษภาคม</option>
-            <option value="06">มิถุนายน</option>
-            <option value="07">กรกฎาคม</option>
-            <option value="08">สิงหาคม</option>
-            <option value="09">กันยายน</option>
-            <option value="10">ตุลาคม</option>
-            <option value="11">พฤศจิกายน</option>
-            <option value="12">ธันวาคม</option>
-          </select>
-        </div>
-        <div class="col-6 col-md-2">
-          <label class="form-label fw-bold mb-1"><i class="bi bi-calendar-event me-1"></i>เลือก พ.ศ.</label>
-          <select id="pmtFilterYear" class="form-select" onchange="loadPaymentManagementData()">
-            <option value="2569">2569</option>
-            <option value="2568">2570</option>
-            <option value="2567">2571</option>
-          </select>
-        </div>
-        <!-- 🟢 Dropdown แชร์ร่วมกันสำหรับกรอง ผู้ซื้อ หรือ ร้านค้า/ผู้รับเงิน -->
-        <div class="col-12 col-md-3">
-          <label id="lblPmtFilterName" class="form-label fw-bold mb-1"><i class="bi bi-person me-1"></i>กรองผู้ซื้อ</label>
-          <select id="pmtFilterName" class="form-select" onchange="filterPaymentTable()">
-            <option value="ALL">-- แสดงทั้งหมด --</option>
-          </select>
-        </div>
-        <div class="col-12 col-md-3">
-          <label class="form-label fw-bold mb-1"><i class="bi bi-funnel me-1"></i>กรองสถานะ</label>
-          <select id="pmtFilterStatus" class="form-select" onchange="filterPaymentTable()">
-            <option value="UNPAID" selected>ยังไม่ชำระ / ยังไม่โอน</option>
-            <option value="PAID">ชำระแล้ว / โอนแล้ว</option>
-            <option value="ALL">-- แสดงทั้งหมด --</option>
-          </select>
-        </div>
-        <div class="col-12 col-md-2 text-end">
-          <button class="btn btn-primary w-100" onclick="loadPaymentManagementData()">
-            <i class="bi bi-search me-1"></i> ค้นหา
-          </button>
-        </div>
-      </div>
+  </nav>
 
-      <!-- ปุ่มใหญ่ 2 ปุ่มสลับ Tab -->
-      <div class="row g-2 mb-4">
-        <div class="col-12 col-md-6">
-          <button id="btnTabCreditSales" class="btn btn-lg btn-success w-100 py-3 fw-bold shadow-sm active" onclick="switchPaymentTab('credit')">
-            <i class="bi bi-person-check-fill me-2 fs-4"></i><br>1. อัปเดตการจ่ายเงินลูกค้าเงินเชื่อ
-          </button>
-        </div>
-        <div class="col-12 col-md-6">
-          <button id="btnTabCompanyExpenses" class="btn btn-lg btn-outline-primary w-100 py-3 fw-bold shadow-sm" onclick="switchPaymentTab('expense')">
-            <i class="bi bi-bank2 me-2 fs-4"></i><br>2. อัปเดตการโอนจ่ายค่าใช้จ่ายบริษัท
-          </button>
-        </div>
-      </div>
+  <div class="container-fluid px-4 py-4">
+    <!-- ปุ่มย้อนกลับ -->
+    <div class="mb-3">
+      <a href="main.html" class="btn btn-link text-decoration-none p-0 text-secondary fw-bold">
+        <i class="bi bi-arrow-left-circle-fill fs-5 me-1 align-middle"></i>
+        <span>ย้อนกลับหน้าเมนูหลัก</span>
+      </a>
+    </div>
 
-      <!-- 🟢 ตารางที่ 1: การจ่ายเงินลูกค้าเงินเชื่อ -->
-      <div id="creditSalesSubView">
-        <!-- ส่วนหัวข้อ + กล่องแสดงยอดรวมทางขวาสุด -->
-        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-          <h5 class="fw-bold text-success mb-0">
-            <i class="bi bi-journal-text me-2"></i>รายการลูกหนี้เงินเชื่อ
-          </h5>
-          <div class="bg-light border border-success-subtle px-3 py-1-5 rounded shadow-sm">
-            <span class="fw-bold text-secondary me-2"><i class="bi bi-calculator me-1"></i>ยอดรวมที่แสดงผล:</span>
-            <span id="creditSalesTotalAmount" class="fw-bold text-primary fs-5">0.00</span>
-            <span class="fw-bold text-secondary ms-1">บาท</span>
+    <div class="card shadow-sm border-0 mb-4">
+      <div class="card-header bg-white py-3">
+        <h4 class="fw-bold text-dark mb-0"><i class="bi bi-cash-stack text-primary me-2"></i>บันทึกการชำระเงินและการโอนจ่าย</h4>
+      </div>
+      <div class="card-body p-4">
+        
+        <!-- ตัวกรอง เดือน / พ.ศ. / ชื่อผู้ซื้อ-ผู้รับเงิน และ สถานะ -->
+        <div class="row g-3 mb-4 bg-light p-3 rounded align-items-end border">
+          <div class="col-6 col-md-2">
+            <label class="form-label fw-bold mb-1"><i class="bi bi-calendar-month me-1"></i>เลือกเดือน</label>
+            <select id="pmtFilterMonth" class="form-select" onchange="loadPaymentManagementData()">
+              <option value="01">มกราคม</option>
+              <option value="02">กุมภาพันธ์</option>
+              <option value="03">มีนาคม</option>
+              <option value="04">เมษายน</option>
+              <option value="05">พฤษภาคม</option>
+              <option value="06">มิถุนายน</option>
+              <option value="07">กรกฎาคม</option>
+              <option value="08">สิงหาคม</option>
+              <option value="09">กันยายน</option>
+              <option value="10">ตุลาคม</option>
+              <option value="11">พฤศจิกายน</option>
+              <option value="12">ธันวาคม</option>
+            </select>
+          </div>
+          <div class="col-6 col-md-2">
+            <label class="form-label fw-bold mb-1"><i class="bi bi-calendar-event me-1"></i>เลือก พ.ศ.</label>
+            <select id="pmtFilterYear" class="form-select" onchange="loadPaymentManagementData()"></select>
+          </div>
+          <div class="col-12 col-md-3">
+            <label id="lblPmtFilterName" class="form-label fw-bold mb-1"><i class="bi bi-person me-1"></i>กรองผู้ซื้อ</label>
+            <select id="pmtFilterName" class="form-select" onchange="filterPaymentTable()">
+              <option value="ALL">-- แสดงทั้งหมด --</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-3">
+            <label class="form-label fw-bold mb-1"><i class="bi bi-funnel me-1"></i>กรองสถานะ</label>
+            <select id="pmtFilterStatus" class="form-select" onchange="filterPaymentTable()">
+              <option value="UNPAID" selected>ยังไม่ชำระ / ยังไม่โอน</option>
+              <option value="PAID">ชำระแล้ว / โอนแล้ว</option>
+              <option value="ALL">-- แสดงทั้งหมด --</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-2 text-end">
+            <button class="btn btn-primary w-100 fw-bold" onclick="loadPaymentManagementData()">
+              <i class="bi bi-search me-1"></i> ค้นหา
+            </button>
           </div>
         </div>
 
-        <div class="table-responsive">
-          <table class="table table-hover table-bordered align-middle">
-            <thead class="table-success text-center">
-              <tr>
-                <th>NO</th>
-                <th>วันที่</th>
-                <th>ผู้ซื้อ</th>
-                <th>บาท/หน่วย</th>
-                <th>จำนวน</th>
-                <th>จำนวนเงิน</th>
-                <th>หมายเหตุ</th>
-                <th>สถานะ</th>
-              </tr>
-            </thead>
-            <tbody id="creditSalesTableBody">
-              <tr><td colspan="8" class="text-center py-4 text-muted">กำลังดึงข้อมูล...</td></tr>
-            </tbody>
-          </table>
+        <!-- ปุ่มใหญ่ 2 ปุ่มสลับ Tab -->
+        <div class="row g-2 mb-4">
+          <div class="col-12 col-md-6">
+            <button id="btnTabCreditSales" class="btn btn-lg btn-success w-100 py-3 fw-bold shadow-sm active" onclick="switchPaymentTab('credit')">
+              <i class="bi bi-person-check-fill me-2 fs-4"></i><br>1. อัปเดตการจ่ายเงินลูกค้าเงินเชื่อ
+            </button>
+          </div>
+          <div class="col-12 col-md-6">
+            <button id="btnTabCompanyExpenses" class="btn btn-lg btn-outline-primary w-100 py-3 fw-bold shadow-sm" onclick="switchPaymentTab('expense')">
+              <i class="bi bi-bank2 me-2 fs-4"></i><br>2. อัปเดตการโอนจ่ายค่าใช้จ่ายบริษัท
+            </button>
+          </div>
         </div>
-      </div>
 
-      <!-- 🟢 ตารางที่ 2: การโอนจ่ายค่าใช้จ่ายบริษัท -->
-      <div id="companyExpenseSubView" class="d-none">
-        <h5 class="fw-bold text-primary mb-3"><i class="bi bi-receipt me-2"></i>รายการค่าใช้จ่ายบริษัท</h5>
-        <div class="table-responsive">
-          <table class="table table-hover table-bordered align-middle">
-            <thead class="table-primary text-center">
-              <tr>
-                <th>เลขที่บิล</th>
-                <th>วันที่</th>
-                <th>หมวดหมู่</th>
-                <th>ร้านค้า/ผู้รับเงิน</th>
-                <th>จำนวนเงิน (บาท)</th>
-                <th>ช่องทางชำระ</th>
-                <th>สถานะ</th>
-              </tr>
-            </thead>
-            <tbody id="companyExpenseTableBody">
-              <tr><td colspan="7" class="text-center py-4 text-muted">กำลังดึงข้อมูล...</td></tr>
-            </tbody>
-          </table>
+        <!-- 🟢 ตารางที่ 1: การจ่ายเงินลูกค้าเงินเชื่อ -->
+        <div id="creditSalesSubView">
+          <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <h5 class="fw-bold text-success mb-0">
+              <i class="bi bi-journal-text me-2"></i>รายการลูกหนี้เงินเชื่อ
+            </h5>
+            <div class="bg-light border border-success-subtle px-3 py-2 rounded shadow-sm">
+              <span class="fw-bold text-secondary me-2"><i class="bi bi-calculator me-1"></i>ยอดรวมที่แสดงผล:</span>
+              <span id="creditSalesTotalAmount" class="fw-bold text-primary fs-5">0.00</span>
+              <span class="fw-bold text-secondary ms-1">บาท</span>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="table table-hover table-bordered align-middle">
+              <thead class="table-success text-center">
+                <tr>
+                  <th>NO</th>
+                  <th>วันที่</th>
+                  <th>ผู้ซื้อ</th>
+                  <th>บาท/หน่วย</th>
+                  <th>จำนวน</th>
+                  <th>จำนวนเงิน</th>
+                  <th>หมายเหตุ</th>
+                  <th>สถานะ</th>
+                </tr>
+              </thead>
+              <tbody id="creditSalesTableBody">
+                <tr><td colspan="8" class="text-center py-4 text-muted">กำลังดึงข้อมูล...</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
 
+        <!-- 🟢 ตารางที่ 2: การโอนจ่ายค่าใช้จ่ายบริษัท -->
+        <div id="companyExpenseSubView" class="d-none">
+          <!-- ส่วนหัวข้อ + กล่องแสดงยอดรวมทางขวาสุด -->
+          <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <h5 class="fw-bold text-primary mb-0">
+              <i class="bi bi-receipt me-2"></i>รายการค่าใช้จ่ายบริษัท
+            </h5>
+            <div class="bg-light border border-primary-subtle px-3 py-2 rounded shadow-sm">
+              <span class="fw-bold text-secondary me-2"><i class="bi bi-calculator me-1"></i>ยอดรวมที่แสดงผล:</span>
+              <span id="companyExpenseTotalAmount" class="fw-bold text-danger fs-5">0.00</span>
+              <span class="fw-bold text-secondary ms-1">บาท</span>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="table table-hover table-bordered align-middle">
+              <thead class="table-primary text-center">
+                <tr>
+                  <th>เลขที่บิล</th>
+                  <th>วันที่</th>
+                  <th>หมวดหมู่</th>
+                  <th>ร้านค้า/ผู้รับเงิน</th>
+                  <th>จำนวนเงิน (บาท)</th>
+                  <th>ช่องทางชำระ</th>
+                  <th>สถานะ</th>
+                </tr>
+              </thead>
+              <tbody id="companyExpenseTableBody">
+                <tr><td colspan="7" class="text-center py-4 text-muted">กำลังดึงข้อมูล...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
     </div>
   </div>
-</section>
 
-<!-- 🟢 โมดูลที่ 7: ออกใบเสร็จรับเงิน ใบกำกับภาษี -->
+  <!-- JS Dependencies -->
+  <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <!-- Firebase SDK Compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+  <!-- App Core Scripts -->
+  <script src="js/firestore.js"></script>
+  <script src="js/login.js"></script>
+  <script src="js/payment.js"></script>
+</body>
+</html>
