@@ -1271,3 +1271,146 @@ async function reverseStockOnFuelPurchase(expenseRecord) {
     console.error("❌ Error in reverseStockOnFuelPurchase:", err);
   }
 }
+
+// ==================== CLAIM SYSTEM HELPERS (ACCURATE TO LEGACY) ====================
+
+// 🟢 1. ดึงรายการค่าใช้จ่ายสำหรับระบบตั้งเบิกภายใน (ตรงตาม Logic เดิม 100%)
+async function getExpenseRecordsForClaim(startDateStr, endDateStr, currentStatus = 'unclaimed') {
+  try {
+    const startFormatted = startDateStr ? toStandardYYYYMMDD(startDateStr) : "";
+    const endFormatted = endDateStr ? toStandardYYYYMMDD(endDateStr) : "";
+    const isReqTarget = (currentStatus === 'claimed');
+
+    let query = db.collection('expense_records');
+    if (startFormatted) query = query.where('date', '>=', startFormatted);
+    if (endFormatted) query = query.where('date', '<=', endFormatted);
+
+    const snapshot = await query.limit(3000).get();
+    const records = [];
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const rawDate = data.date || "";
+      const dateStd = toStandardYYYYMMDD(rawDate);
+
+      // กรองช่วงวันที่ซ้ำอีกครั้งเพื่อความถูกต้อง
+      if (dateStd && startFormatted && dateStd < startFormatted) return;
+      if (dateStd && endFormatted && dateStd > endFormatted) return;
+
+      const claimNoVal = String(data.requisitionNo || data.claimNo || '').trim();
+      const isReq = (data.isRequisition === true) || (claimNoVal !== "");
+
+      // กรองสถานะตั้งเบิกตาม Filter
+      if (isReqTarget) {
+        if (!isReq) return;
+      } else {
+        if (isReq) return;
+      }
+
+      records.push({
+        id: doc.id,
+        expenseNo: data.expenseNo || data.no || doc.id,
+        date: rawDate || "-",
+        category: data.category || data.itemName || "ค่าใช้จ่ายทั่วไป",
+        description: data.remarks || data.payeeName || "-",
+        totalAmount: parseFloat(data.totalWithVat || data.amount || 0),
+        isRequisition: isReq,
+        claimNo: claimNoVal,
+        remarks: data.remarks || ""
+      });
+    });
+
+    records.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    return { success: true, data: records };
+  } catch (err) {
+    console.error("❌ Error in getExpenseRecordsForClaim:", err);
+    return { success: false, message: err.message, data: [] };
+  }
+}
+
+// 🟢 2. รันเลขที่ใบตั้งเบิกถัดไป (เช่น SBCE1169-0001)
+async function getNextClaimNo(dateStr) {
+  try {
+    const stdDate = toStandardYYYYMMDD(dateStr || new Date().toISOString().split('T')[0]);
+    const parts = stdDate.split('/');
+    
+    let month = String(new Date().getMonth() + 1).padStart(2, '0');
+    let yearBE = String(new Date().getFullYear() + 543).slice(-2);
+
+    if (parts.length === 3) {
+      month = String(parts[1]).padStart(2, '0');
+      let yr = parseInt(parts[0], 10);
+      if (yr < 2400) yr += 543;
+      yearBE = String(yr).slice(-2);
+    }
+
+    const prefix = `SBCE${month}${yearBE}`;
+
+    const trackerDoc = await db.collection('claim_no').doc('current').get();
+    let lastPrefix = "", lastNumber = 0;
+
+    if (trackerDoc.exists) {
+      const data = trackerDoc.data();
+      lastPrefix = data.last_prefix || "";
+      lastNumber = Number(data.last_number || 0);
+    }
+
+    const nextNumber = (lastPrefix === prefix) ? lastNumber + 1 : 1;
+    const fullClaimNo = `${prefix}-${String(nextNumber).padStart(4, '0')}`;
+    return { success: true, claimNo: fullClaimNo, prefix: prefix, number: nextNumber };
+  } catch (err) {
+    console.error("❌ Error in getNextClaimNo:", err);
+    return { success: false, message: err.message, claimNo: 'SBCE-0001' };
+  }
+}
+
+// 🟢 3. ยืนยันตั้งเบิกค่าใช้จ่าย (บันทึก 'claim_records' และอัปเดต 'expense_records')
+async function confirmClaim(expenseIds, claimDateStr, claimData) {
+  try {
+    if (!Array.isArray(expenseIds) || expenseIds.length === 0) {
+      return { success: false, message: 'กรุณาเลือกอย่างน้อย 1 รายการ' };
+    }
+
+    const claimNoInfo = await getNextClaimNo(claimDateStr);
+    const claimNo = claimNoInfo.claimNo;
+
+    const payload = {
+      claimNo: claimNo,
+      claimDate: claimDateStr,
+      totalAmount: Number(claimData.grandTotal || 0),
+      grandTotal: Number(claimData.grandTotal || 0),
+      itemCount: expenseIds.length,
+      expenseNos: claimData.expenseNos || [],
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    // 1. บันทึกเอกสารใบตั้งเบิกลง collection 'claim_records' (ตรงตามระบบเดิม)
+    await db.collection('claim_records').doc(claimNo.replace(/\//g, "-")).set(payload);
+
+    // 2. อัปเดตตัวรันเลขใน collection 'claim_no'
+    if (claimNoInfo.prefix && claimNoInfo.number) {
+      await db.collection('claim_no').doc('current').set({
+        last_prefix: claimNoInfo.prefix,
+        last_number: claimNoInfo.number
+      }, { merge: true });
+    }
+
+    // 3. อัปเดตรายการค่าใช้จ่ายใน 'expense_records' (บันทึกทั้ง claimNo และ requisitionNo)
+    const batch = db.batch();
+    expenseIds.forEach(id => {
+      const ref = db.collection('expense_records').doc(String(id));
+      batch.update(ref, {
+        isRequisition: true,
+        claimNo: claimNo,
+        requisitionNo: claimNo,
+        requisitionAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    });
+    await batch.commit();
+
+    return { success: true, claimNo: claimNo, message: 'บันทึกตั้งเบิกสำเร็จ' };
+  } catch (err) {
+    console.error("❌ Error in confirmClaim:", err);
+    return { success: false, message: err.message };
+  }
+}

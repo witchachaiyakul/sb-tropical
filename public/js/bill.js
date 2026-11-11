@@ -8,6 +8,8 @@ document.addEventListener('DOMContentLoaded', function () {
   loadBillingData();
 });
 
+const GAS_PDF_SERVICE_URL = "https://script.google.com/macros/s/AKfycbzEuhTvEqFMUa6yNXkEFm7NC8UeJhUVXAu9cvavdWJZltiJTcG7S2AgWrBkEVJz90pxSQ/exec";
+
 // ==================== DROPDOWN & DATE HELPERS ====================
 function initMonthYearDropdowns() {
   const startM = document.getElementById('filterBillStartMonth');
