@@ -288,4 +288,14 @@
     page-break-inside: avoid !important;
   }
 }
+
+/* สไตล์ให้หัวตารางคลิกได้และดูเป็นปุ่มกด */
+  th.sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s;
+  }
+  th.sortable:hover {
+    background-color: #cfe2ff !important;
+  }
   

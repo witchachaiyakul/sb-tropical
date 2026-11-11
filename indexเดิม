@@ -1671,35 +1671,35 @@
         </div>
       </div>
 
-<!-- ตารางรายการที่ยังไม่ออกใบเสร็จ -->
-      <div class="table-responsive">
-        <table class="table table-hover table-bordered align-middle">
-          <thead class="table-primary text-center">
-            <tr>
-              <th width="40"><input type="checkbox" id="checkAllRcp" onchange="toggleSelectAllRcp(this)"></th>
-              <th>เลขที่บิล</th>
-              <th>วันที่</th>
-              <th>ผู้ซื้อ/ลูกค้า</th>
-              <th>ประเภทสินค้า</th>
-              <th>รายการสินค้า</th> <!-- 🟢 เพิ่มคอลัมน์ itemName ต่อจากประเภทสินค้า -->
-              <th>จำนวน</th>
-              <th>ราคา/หน่วย</th>
-              <th>จำนวนเงินรวม</th>
-            </tr>
-          </thead>
-          <tbody id="unreceiptedTableBody">
-            <tr>
-              <td colspan="9" class="text-center py-4 text-muted">
-                <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
-                  <span class="visually-hidden">Loading...</span>
-                </div>
-                กำลังดึงข้อมูลรายการค้างออกใบเสร็จ...
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
+    <!-- ตารางรายการที่ยังไม่ออกใบเสร็จ -->
+    <div class="table-responsive">
+      <table class="table table-hover table-bordered align-middle">
+        <thead class="table-primary text-center">
+          <tr>
+            <th width="40"><input type="checkbox" id="checkAllRcp" onchange="toggleSelectAllRcp(this)"></th>
+            <th>เลขที่บิล</th>
+            <th>วันที่</th>
+            <th>เลขที่ใบเสร็จ</th> <!-- 🟢 เพิ่มคอลัมน์เลขที่ใบเสร็จ -->
+            <th>ผู้ซื้อ/ลูกค้า</th>
+            <th>ประเภทสินค้า</th>
+            <th>รายการสินค้า</th>
+            <th>จำนวน</th>
+            <th>ราคา/หน่วย</th>
+            <th>จำนวนเงินรวม</th>
+          </tr>
+        </thead>
+        <tbody id="unreceiptedTableBody">
+          <tr>
+            <td colspan="10" class="text-center py-4 text-muted"> <!-- 🟢 ปรับ colspan เป็น 10 -->
+              <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                <span class="visually-hidden">Loading...</span>
+              </div>
+              กำลังดึงข้อมูลรายการค้างออกใบเสร็จ...
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     </div>
   </div>
 </section>

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>รายงานสรุปยอดค่าใช้จ่ายรายเดือน - SB Tropical</title>
+
+  <!-- CSS Dependencies -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body class="bg-light">
+
+  <!-- TOP NAVBAR -->
+  <nav class="navbar navbar-expand-lg navbar-dark shadow-sm" style="background-color: var(--sb-primary, #0d6efd);">
+    <div class="container-fluid px-4">
+      <a class="navbar-brand d-flex align-items-center fw-bold" href="main.html">
+        <img src="images/sb.png" alt="SB Logo" height="36" class="me-2 bg-white rounded p-1" onerror="this.src='https://lh3.googleusercontent.com/d/1Z2F5s7RXUAmSgA7bKKTqDKsHxdHGg3Cq'">
+        SB Tropical
+      </a>
+      <div class="d-flex align-items-center gap-3">
+        <a href="main.html" class="btn btn-outline-light btn-sm">
+          <i class="bi bi-house-door-fill me-1"></i> หน้าหลัก
+        </a>
+        <button class="btn btn-danger btn-sm shadow-sm" onclick="logout()">
+          <i class="bi bi-box-arrow-right me-1"></i> ออกจากระบบ
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- MAIN MODULE CONTAINER -->
+  <div id="monthlyExpenseReportModuleSection" class="container-fluid px-4 py-4">
+    <div class="row mb-4 align-items-center">
+      <div class="col">
+        <h3 class="fw-bold text-dark mb-1"><i class="bi bi-wallet2 text-danger me-2"></i>รายงานสรุปยอดค่าใช้จ่ายรายเดือน</h3>
+        <p class="text-muted small mb-0">เรียกดูสรุปค่าใช้จ่ายจากระบบ แยกตามช่วงเวลา หมวดหมู่ และบัญชีโอนจ่าย</p>
+      </div>
+      <div class="col-auto">
+        <a href="main.html" class="btn btn-secondary px-4 shadow-sm fw-bold">
+          <i class="bi bi-arrow-left me-1"></i> กลับหน้าหลัก
+        </a>
+      </div>
+    </div>
+
+    <!-- ส่วนตัวกรอง (Filter Card) -->
+    <div class="card shadow-sm border-0 mb-4 p-3 bg-white rounded-3">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-2">
+          <label class="form-label small fw-bold text-secondary">ตั้งแต่เดือน</label>
+          <select id="expRepStartMonth" class="form-select form-select-sm">
+            <option value="01">มกราคม</option><option value="02">กุมภาพันธ์</option><option value="03">มีนาคม</option>
+            <option value="04">เมษายน</option><option value="05">พฤษภาคม</option><option value="06">มิถุนายน</option>
+            <option value="07">กรกฎาคม</option><option value="08">สิงหาคม</option><option value="09">กันยายน</option>
+            <option value="10">ตุลาคม</option><option value="11">พฤศจิกายน</option><option value="12">ธันวาคม</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-bold text-secondary">พ.ศ. เริ่มต้น</label>
+          <select id="expRepStartYear" class="form-select form-select-sm">
+            <!-- เติมโดย JS -->
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-bold text-secondary">ถึงเดือน</label>
+          <select id="expRepEndMonth" class="form-select form-select-sm">
+            <option value="01">มกราคม</option><option value="02">กุมภาพันธ์</option><option value="03">มีนาคม</option>
+            <option value="04">เมษายน</option><option value="05">พฤษภาคม</option><option value="06">มิถุนายน</option>
+            <option value="07">กรกฎาคม</option><option value="08">สิงหาคม</option><option value="09">กันยายน</option>
+            <option value="10">ตุลาคม</option><option value="11">พฤศจิกายน</option><option value="12" selected>ธันวาคม</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-bold text-secondary">พ.ศ. สิ้นสุด</label>
+          <select id="expRepEndYear" class="form-select form-select-sm">
+            <!-- เติมโดย JS -->
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-bold text-secondary">หมวดหมู่</label>
+          <select id="expRepCategoryFilter" class="form-select form-select-sm">
+            <option value="">-- ทุกหมวดหมู่ --</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-primary btn-sm w-100 fw-bold shadow-sm py-2" onclick="loadMonthlyExpenseReport()">
+            <i class="bi bi-search me-1"></i> ค้นหา / ประมวลผล
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- สรุปยอดรวม (Summary Cards) -->
+    <div class="row g-3 mb-4">
+      <div class="col-md-4">
+        <div class="card border-0 shadow-sm bg-danger text-white p-3 rounded-3 h-100">
+          <h6 class="text-white-50 small mb-1">ยอดค่าใช้จ่ายรวมทั้งหมด</h6>
+          <h3 id="expRepTotalAmount" class="fw-bold mb-0">0.00 บาท</h3>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card border-0 shadow-sm bg-info text-white p-3 rounded-3 h-100">
+          <h6 class="text-white-50 small mb-1">จำนวนรายการทั้งหมด</h6>
+          <h3 id="expRepTotalCount" class="fw-bold mb-0">0 รายการ</h3>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card border-0 shadow-sm bg-success text-white p-3 rounded-3 h-100">
+          <h6 class="text-white-50 small mb-1">หมวดหมู่ที่มีค่าใช้จ่ายสูงสุด</h6>
+          <h3 id="expRepTopCategory" class="fw-bold mb-0 fs-5 text-truncate">-</h3>
+        </div>
+      </div>
+    </div>
+
+    <!-- ตารางสรุปยอดค่าใช้จ่ายแยกตามหมวดหมู่ -->
+    <div class="card shadow-sm border-0 rounded-3 mb-4">
+      <div class="card-header bg-white py-3">
+        <h5 class="fw-bold text-dark mb-0"><i class="bi bi-pie-chart-fill me-2 text-primary"></i>สรุปยอดค่าใช้จ่ายแยกตามหมวดหมู่</h5>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 60px;" class="text-center">#</th>
+                <th>หมวดหมู่ค่าใช้จ่าย</th>
+                <th class="text-center" style="width: 150px;">จำนวนรายการ</th>
+                <th class="text-end" style="width: 200px;">ยอดเงินรวม (บาท)</th>
+                <th class="text-end" style="width: 120px;">สัดส่วน</th>
+              </tr>
+            </thead>
+            <tbody id="monthlyCategorySummaryTableBody">
+              <tr><td colspan="5" class="text-center text-muted py-3">กรุณากดปุ่ม "ค้นหา / ประมวลผล" เพื่อแสดงข้อมูล</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ตารางแสดงรายละเอียด -->
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-white py-3">
+        <h5 class="fw-bold text-dark mb-0"><i class="bi bi-table me-2 text-danger"></i>ตารางรายละเอียดค่าใช้จ่ายตามเงื่อนไข</h5>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table id="monthlyExpenseReportTable" class="table table-striped table-hover align-middle mb-0">
+            <thead class="table-light align-middle">
+              <tr>
+                <th class="sortable" onclick="sortExpenseReportTable('date')">
+                  วันที่ <i id="sortIcon_date" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="sortable" onclick="sortExpenseReportTable('category')">
+                  หมวดหมู่ <i id="sortIcon_category" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="sortable" onclick="sortExpenseReportTable('itemName')">
+                  รายการสินค้า/บริการ <i id="sortIcon_itemName" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="text-end sortable" onclick="sortExpenseReportTable('liters')">
+                  จำนวน (ลิตร) <i id="sortIcon_liters" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="text-end sortable" onclick="sortExpenseReportTable('amount')">
+                  จำนวนเงิน (บาท) <i id="sortIcon_amount" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="sortable" onclick="sortExpenseReportTable('transferAccount')">
+                  บัญชีโอนจ่าย <i id="sortIcon_transferAccount" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="sortable" onclick="sortExpenseReportTable('transferDate')">
+                  วันที่โอน <i id="sortIcon_transferDate" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="sortable" onclick="sortExpenseReportTable('remarks')">
+                  หมายเหตุ <i id="sortIcon_remarks" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+              </tr>
+            </thead>
+            <tbody id="monthlyExpenseReportTableBody">
+              <tr><td colspan="8" class="text-center text-muted py-4">กรุณากดปุ่ม "ค้นหา / ประมวลผล" เพื่อแสดงข้อมูล</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- JS Dependencies -->
+  <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <!-- Firebase SDK Compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+  <!-- App Core Scripts -->
+  <script src="js/firestore.js"></script>
+  <script src="js/login.js"></script>
+  <script src="js/mon-exp.js"></script>
+</body>
+</html>

@@ -1624,6 +1624,7 @@ async function getUnreceiptedSalesRecords(yearMonthStr, buyerFilter = 'ALL') {
         id: doc.id,
         docId: doc.id,
         saleNo: f.saleNo || doc.id,
+        receiptNo: f.receiptNo || '-',
         date: f.date || '-',
         buyerName: buyerName || '-',
         itemType: f.itemType || 'น้ำมัน',
@@ -1737,6 +1738,558 @@ async function updateSalesReceiptStatusInFirestore(selectedSaleIds) {
     return { success: true };
   } catch (err) {
     console.error("❌ Error in updateSalesReceiptStatusInFirestore:", err);
+    return { success: false, message: err.message };
+  }
+}
+
+// public/js/firestore.js
+
+// 🟢 1. วาง URL ไว้ด้านบนสุดของไฟล์ firestore.js
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzEuhTvEqFMUa6yNXkEFm7NC8UeJhUVXAu9cvavdWJZltiJTcG7S2AgWrBkEVJz90pxSQ/exec";
+
+// 🟢 2. ฟังก์ชันกลางสำหรับส่ง Request ไปยัง GAS Web App
+async function callBackendApi(actionName, payload = {}) {
+  try {
+    const response = await fetch(GAS_WEB_APP_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8"
+      },
+      body: JSON.stringify({
+        action: actionName,
+        ...payload
+      })
+    });
+
+    return await response.json();
+  } catch (err) {
+    console.error("❌ callBackendApi Error:", err);
+    return { success: false, message: err.message };
+  }
+}
+
+// ==================== FINANCIAL SUMMARY MODULE ====================
+
+/**
+ * 🟢 บันทึกตั้งค่าเงินทุนลง Firestore Document: settings/capital
+ */
+async function saveCapitalSettingsData(compCap, paCap, borrowedCap) {
+  try {
+    await db.collection('settings').doc('capital').set({
+      companyCapital: parseFloat(compCap) || 0,
+      paCapital: parseFloat(paCap) || 0,
+      borrowedCapital: parseFloat(borrowedCap) || 0,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    return { success: true, message: 'บันทึกตั้งค่าส่วนของทุนเรียบร้อยแล้ว' };
+  } catch (err) {
+    console.error("❌ Error saveCapitalSettingsData:", err);
+    return { success: false, message: err.message };
+  }
+}
+
+/**
+ * 🟢 คำนวณสรุปข้อมูลการเงินรายเดือน (รอบ 12 เดือน เริ่มจาก ต.ค. ของปีที่เลือก)
+ */
+async function getFinancialSummaryData(selectedYearStr) {
+  try {
+    let startYearAD = parseInt(selectedYearStr, 10) || new Date().getFullYear();
+    if (startYearAD > 2400) startYearAD -= 543; // แปลง พ.ศ. เป็น ค.ศ.
+    
+    // 1. ดึงข้อมูลส่วนของทุนจาก settings/capital
+    let companyCapital = 0, paCapital = 0, borrowedCapital = 0;
+    try {
+      const capitalDoc = await db.collection('settings').doc('capital').get();
+      if (capitalDoc.exists) {
+        const capData = capitalDoc.data();
+        companyCapital = parseFloat(capData.companyCapital || 0);
+        paCapital = parseFloat(capData.paCapital || 0);
+        borrowedCapital = parseFloat(capData.borrowedCapital || 0);
+      }
+    } catch (e) {
+      console.warn("⚠️ ไม่พบเอกสาร settings/capital", e);
+    }
+    const totalCapital = companyCapital + paCapital;
+
+    // 2. กำหนดช่วง 12 เดือน (เริ่ม ต.ค. ปีที่เลือก -> ก.ย. ปีถัดไป)
+    const months = [
+      { m: 10, y: startYearAD, name: 'ตุลาคม' },
+      { m: 11, y: startYearAD, name: 'พฤศจิกายน' },
+      { m: 12, y: startYearAD, name: 'ธันวาคม' },
+      { m: 1, y: startYearAD + 1, name: 'มกราคม' },
+      { m: 2, y: startYearAD + 1, name: 'กุมภาพันธ์' },
+      { m: 3, y: startYearAD + 1, name: 'มีนาคม' },
+      { m: 4, y: startYearAD + 1, name: 'เมษายน' },
+      { m: 5, y: startYearAD + 1, name: 'พฤษภาคม' },
+      { m: 6, y: startYearAD + 1, name: 'มิถุนายน' },
+      { m: 7, y: startYearAD + 1, name: 'กรกฎาคม' },
+      { m: 8, y: startYearAD + 1, name: 'สิงหาคม' },
+      { m: 9, y: startYearAD + 1, name: 'กันยายน' }
+    ];
+
+    const startDateStr = `${startYearAD}/10/01`;
+    const endDateStr = `${startYearAD + 1}/09/30`;
+
+    // โครงสร้างสะสมรายเดือน
+    const monthlyMap = {};
+    months.forEach(item => {
+      const key = `${item.y}-${String(item.m).padStart(2, '0')}`;
+      monthlyMap[key] = {
+        monthKey: key,
+        monthName: item.name,
+        yearBE: item.y + 543,
+        sales: 0,
+        cashSales: 0,
+        expenses: 0,
+        cost: 0,
+        otherExp: 0,
+        liters95: 0,
+        litersDiesel: 0,
+        netProfit: 0,
+        ar: 0
+      };
+    });
+
+    // 3. ดึงรายการขาย (sales_records)
+    const salesSnap = await db.collection('sales_records')
+      .where('date', '>=', startDateStr)
+      .where('date', '<=', endDateStr)
+      .get();
+
+    let totalSales = 0, cashSales = 0, totalAR = 0;
+
+    salesSnap.forEach(doc => {
+      const f = doc.data();
+      const amount = parseFloat(f.totalAmount || f.amount || 0);
+      const rawDate = String(f.date || '').replace(/-/g, '/');
+      const parts = rawDate.split('/');
+      
+      if (parts.length === 3) {
+        let y = parseInt(parts[0], 10);
+        if (y > 2400) y -= 543;
+        const key = `${y}-${parts[1].padStart(2, '0')}`;
+
+        if (monthlyMap[key]) {
+          monthlyMap[key].sales += amount;
+
+          const checkItem = `${f.itemName || ''} ${f.itemType || ''}`;
+          const litersVal = parseFloat(f.liters || f.qty || 0);
+          if (checkItem.includes('ดีเซล')) {
+            monthlyMap[key].litersDiesel += litersVal;
+          } else {
+            monthlyMap[key].liters95 += litersVal;
+          }
+
+          const pType = String(f.paymentType || '').trim();
+          const pStatus = String(f.paymentStatus || 'unpaid').trim();
+
+          if (pType === 'เงินสด' || pType === 'cash') {
+            monthlyMap[key].cashSales += amount;
+            cashSales += amount;
+          }
+
+          if ((pType === 'เงินเชื่อ' || pType === 'credit') && pStatus !== 'paid') {
+            monthlyMap[key].ar += amount;
+            totalAR += amount;
+          }
+        }
+      }
+      totalSales += amount;
+    });
+
+    // 4. ดึงรายการค่าใช้จ่าย (เช็คคอลเลกชัน expense_records หรือ expenses)
+    let totalExpenses = 0, costExpenses = 0, otherExpenses = 0;
+    
+    let expSnap;
+    try {
+      expSnap = await db.collection('expense_records')
+        .where('date', '>=', startDateStr)
+        .where('date', '<=', endDateStr)
+        .get();
+      
+      if (expSnap.empty) {
+        expSnap = await db.collection('expenses')
+          .where('date', '>=', startDateStr)
+          .where('date', '<=', endDateStr)
+          .get();
+      }
+    } catch (e) {
+      console.warn("⚠️ ดึงค่าใช้จ่ายทั้งหมดแบบ Fallback", e);
+      expSnap = await db.collection('expense_records').get();
+    }
+
+    expSnap.forEach(doc => {
+      const ef = doc.data();
+      // ดึงยอดเงินจากทุกฟิลด์ที่เป็นไปได้
+      const amt = parseFloat(ef.totalWithVat || ef.totalAmount || ef.amount || ef.total || 0);
+      const category = String(ef.category || '').trim();
+      const itemName = String(ef.itemName || '').trim();
+      
+      const isCost = (category.includes("ซื้อน้ำมัน") || category.includes("น้ำมัน") || itemName.includes("95") || itemName.includes("ดีเซล"));
+      const rawDate = String(ef.date || ef.transferDate || '').replace(/-/g, '/');
+      const parts = rawDate.split('/');
+      
+      if (parts.length === 3) {
+        let y = parseInt(parts[0], 10);
+        if (y > 2400) y -= 543;
+        const key = `${y}-${parts[1].padStart(2, '0')}`;
+        
+        if (monthlyMap[key]) {
+          // 🟢 บวกสะสมค่าใช้จ่ายทุกรายการ ไม่ติดเงื่อนไขข้ามรายการ
+          monthlyMap[key].expenses += amt;
+          if (isCost) {
+            monthlyMap[key].cost += amt;
+          } else {
+            monthlyMap[key].otherExp += amt;
+          }
+        }
+      }
+
+      totalExpenses += amt;
+      if (isCost) costExpenses += amt;
+      else otherExpenses += amt;
+    });
+
+    // 5. ดึงรายการโอนจ่าย (transfer_records หรือ collection_transfers)
+    const transferList = [];
+    let transferTotal = 0;
+    try {
+      let transferSnap = await db.collection('transfer_records').get();
+      if (transferSnap.empty) {
+        transferSnap = await db.collection('collection_transfers').get();
+      }
+
+      transferSnap.forEach(doc => {
+        const tf = doc.data();
+        const amt = parseFloat(tf.amount || tf.totalAmount || 0);
+        transferTotal += amt;
+        transferList.push({
+          date: tf.date || tf.transferDate || '-',
+          account: tf.fromAccount || tf.account || tf.channel || '-',
+          amount: amt,
+          remarks: tf.remarks || tf.details || '-'
+        });
+      });
+    } catch (e) {
+      console.warn("⚠️ ไม่พบคอลเลกชันรายการโอนจ่าย", e);
+    }
+
+    transferList.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const netProfit = totalSales - totalExpenses;
+    const monthlyList = Object.values(monthlyMap);
+
+    return {
+      success: true,
+      summary: {
+        totalSales,
+        totalExpenses,
+        costExpenses,
+        otherExpenses,
+        netProfit,
+        borrowedCapital,
+        totalAR,
+        companyCapital,
+        paCapital,
+        totalCapital,
+        cashSales,
+        transferTotal
+      },
+      transferList,
+      monthlyList
+    };
+
+  } catch (err) {
+    console.error("❌ Error in getFinancialSummaryData:", err);
+    return { success: false, message: err.message };
+  }
+}
+
+async function updateSalePaymentStatusInFirestore(docId, paidDate, saleDate) {
+  try {
+    const todayStr = paidDate || new Date().toISOString().split('T')[0];
+    await db.collection('sales_records').doc(docId).update({
+      paymentStatus: 'paid',
+      paidDate: todayStr,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    // recalculate monthly summary
+    if (typeof recalculateMonthlySummaryInFirestore === 'function') {
+      await recalculateMonthlySummaryInFirestore(saleDate || todayStr);
+    }
+
+    return { success: true, message: 'อัปเดตการชำระเงินเรียบร้อยแล้ว' };
+  } catch (err) {
+    console.error("❌ Error in updateSalePaymentStatusInFirestore:", err);
+    return { success: false, message: err.message };
+  }
+}
+
+async function updateExpenseTransferStatusInFirestore(docId, transferAccount, transferDate, expDate, amount, remarks) {
+  try {
+    const tfDate = transferDate || new Date().toISOString().split('T')[0];
+
+    // 1. อัปเดตเอกสาร expense_records
+    await db.collection('expense_records').doc(docId).update({
+      paymentType: 'เงินโอน',
+      transferStatus: 'transferred',
+      transferAccount: transferAccount,
+      transferDate: tfDate,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    // 2. บันทึกประวัติลง transfer_records (เพื่อให้ขึ้นในตารางโอนจ่าย)
+    await db.collection('transfer_records').add({
+      date: tfDate,
+      fromAccount: transferAccount || '-',
+      amount: parseFloat(amount) || 0,
+      remarks: remarks || 'โอนจ่ายค่าใช้จ่าย',
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    // 3. คำนวณสรุปรายเดือนใหม่
+    if (typeof recalculateMonthlySummaryInFirestore === 'function') {
+      await recalculateMonthlySummaryInFirestore(expDate || tfDate);
+    }
+
+    return { success: true, message: 'บันทึกการโอนจ่ายสำเร็จ' };
+  } catch (err) {
+    console.error("❌ Error in updateExpenseTransferStatusInFirestore:", err);
+    return { success: false, message: err.message };
+  }
+}
+
+async function recalculateMonthlySummaryInFirestore(dateStr) {
+  try {
+    const ym = parseMonthKey(dateStr);
+    if (!ym) return;
+
+    const parts = ym.split("-");
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
+    const lastDay = new Date(year, month, 0).getDate();
+    
+    const startFormatted = `${year}/${String(month).padStart(2, '0')}/01`;
+    const endFormatted = `${year}/${String(month).padStart(2, '0')}/${String(lastDay).padStart(2, '0')}`;
+
+    // 1. ดึง sales_records ของเดือน
+    const salesSnap = await db.collection('sales_records')
+      .where('date', '>=', startFormatted)
+      .where('date', '<=', endFormatted)
+      .get();
+
+    let sales = 0, cashSales = 0, liters = 0, liters95 = 0, litersDiesel = 0, ar = 0;
+
+    salesSnap.forEach(doc => {
+      const f = doc.data();
+      const amt = parseFloat(f.totalAmount || 0);
+      const l = parseFloat(f.liters || f.qty || 0);
+      const itemName = String(f.itemName || '').trim();
+      const itemType = String(f.itemType || '').trim();
+      const pStatus = String(f.paymentStatus || 'unpaid').trim();
+      const pType = String(f.paymentType || '').trim();
+
+      const isDiesel = itemName.includes("ดีเซล") || itemType.includes("ดีเซล");
+      const isCash = (pType === 'เงินสด' || pType === 'cash');
+
+      sales += amt;
+      if (isCash) cashSales += amt;
+      liters += l;
+      if (isDiesel) litersDiesel += l;
+      else liters95 += l;
+
+      // คิดเป็นลูกหนี้เฉพาะรายการเงินเชื่อที่ยังไม่ออกใบเสร็จหรือยังไม่จ่าย (unpaid)
+      if ((pType === 'เงินเชื่อ' || pType === 'credit') && pStatus !== 'paid') {
+        ar += amt;
+      }
+    });
+
+    // 2. ดึง expense_records ของเดือน
+    let expenses = 0, cost = 0, otherExp = 0, transferTotal = 0;
+    try {
+      const expSnap = await db.collection('expense_records')
+        .where('date', '>=', startFormatted)
+        .where('date', '<=', endFormatted)
+        .get();
+
+      expSnap.forEach(doc => {
+        const f = doc.data();
+        const amt = parseFloat(f.totalWithVat || f.amount || 0);
+        const category = String(f.category || '').trim();
+        const itemName = String(f.itemName || '').trim();
+        const pType = String(f.paymentType || '').trim();
+        const tStatus = String(f.transferStatus || '').trim();
+
+        expenses += amt;
+        const isCost = (category.includes("ซื้อน้ำมัน") || itemName.includes("95") || itemName.includes("ดีเซล"));
+        if (isCost) cost += amt;
+        else otherExp += amt;
+
+        if (pType === 'เงินโอน' || tStatus === 'transferred') {
+          transferTotal += amt;
+        }
+      });
+    } catch (e) {
+      console.warn("⚠️ ไม่พบ expense_records ในช่วงเวลานี้");
+    }
+
+    // 3. บันทึกผลรวมลง monthly_summary/YYYY-MM
+    await db.collection('monthly_summary').doc(ym).set({
+      monthKey: ym,
+      totalSales: sales,
+      cashSales: cashSales,
+      totalExpenses: expenses,
+      costExpenses: cost,
+      otherExpenses: otherExp,
+      totalLiters: liters,
+      liters95: liters95,
+      litersDiesel: litersDiesel,
+      accountsReceivable: ar,
+      transferTotal: transferTotal,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    console.log(`✅ คำนวณยอดสรุปประจำเดือน ${ym} สำเร็จ`);
+  } catch (err) {
+    console.error("❌ Error in recalculateMonthlySummaryInFirestore:", err);
+  }
+}
+
+/**
+ * 🟢 ดึงข้อมูลรายงานยอดขายตามลูกค้า (สรุปยอดขาย 95 และ ดีเซล รายบุคคล)
+ * ดึงข้อมูลตรงจาก Firestore Direct
+ */
+async function getCustomerSalesReportFromFirestore() {
+  try {
+    const buyerMap = {};
+
+    // 1. ดึงข้อมูลผู้ซื้อทั้งหมดจากคอลเลกชัน 'buyer'
+    const buyerSnap = await db.collection('buyer').get();
+    
+    buyerSnap.forEach(doc => {
+      const f = doc.data();
+      const docId = doc.id;
+      const name = (f.name || docId || '').trim();
+      
+      if (name) {
+        // อ่าน salesSummary ที่บันทึกสะสมไว้ในเอกสาร buyer (เหมือน GAS เดิม)
+        const summary = f.salesSummary || {};
+        const s95 = summary['95'] || summary['gasohol95'] || { totalLiters: 0, totalAmount: 0 };
+        const sDiesel = summary['diesel'] || { totalLiters: 0, totalAmount: 0 };
+
+        buyerMap[name] = {
+          id: docId,
+          name: name,
+          fullname: (f.fullname || name).trim(),
+          address: f.address || '-',
+          taxid: f.taxid || '-',
+          salesSummary: {
+            '95': {
+              totalLiters: parseFloat(s95.totalLiters || s95.liters || 0),
+              totalAmount: parseFloat(s95.totalAmount || s95.amount || 0)
+            },
+            'diesel': {
+              totalLiters: parseFloat(sDiesel.totalLiters || sDiesel.liters || 0),
+              totalAmount: parseFloat(sDiesel.totalAmount || sDiesel.amount || 0)
+            }
+          }
+        };
+      }
+    });
+
+    // 2. สำรองข้อมูล: สแกน sales_records เพิ่มเติมกรณีลูกค้ายังไม่มี salesSummary
+    const salesSnap = await db.collection('sales_records').get();
+
+    salesSnap.forEach(doc => {
+      const f = doc.data();
+      const buyerName = String(f.buyerName || '').trim();
+      if (!buyerName) return;
+
+      // ถ้าไม่เคยมีข้อมูลลูกค้าคนนี้ใน buyerMap ให้สร้างใหม่
+      if (!buyerMap[buyerName]) {
+        buyerMap[buyerName] = {
+          id: buyerName,
+          name: buyerName,
+          fullname: buyerName,
+          address: '-',
+          taxid: '-',
+          salesSummary: {
+            '95': { totalLiters: 0, totalAmount: 0 },
+            'diesel': { totalLiters: 0, totalAmount: 0 }
+          }
+        };
+      }
+
+      const bObj = buyerMap[buyerName];
+      const s95L = bObj.salesSummary['95'].totalLiters;
+      const sDieselL = bObj.salesSummary['diesel'].totalLiters;
+
+      // ถ้าใน buyer document ยังไม่มีการลงบันทึกยอดสะสม (ยังเป็น 0) ให้ใช้ยอดจาก sales_records สมทบ
+      if (s95L === 0 && sDieselL === 0) {
+        const amt = parseFloat(f.totalAmount || f.amount || 0);
+        const liters = parseFloat(f.liters || f.qty || 0);
+        const checkText = `${f.itemName || ''} ${f.itemType || ''}`;
+        const isDiesel = checkText.includes('ดีเซล');
+
+        if (isDiesel) {
+          bObj.salesSummary['diesel'].totalLiters += liters;
+          bObj.salesSummary['diesel'].totalAmount += amt;
+        } else {
+          bObj.salesSummary['95'].totalLiters += liters;
+          bObj.salesSummary['95'].totalAmount += amt;
+        }
+      }
+    });
+
+    const dataList = Object.values(buyerMap);
+    return { success: true, data: dataList };
+
+  } catch (err) {
+    console.error("❌ Error in getCustomerSalesReportFromFirestore:", err);
+    return { success: false, message: err.message };
+  }
+}
+
+/**
+ * 🟢 ดึงข้อมูลค่าใช้จ่ายจาก Firestore ตามช่วงวันที่ (startDateStr ถึง endDateStr)
+ */
+/**
+ * 🟢 ดึงข้อมูลค่าใช้จ่ายจาก Firestore พร้อมฟิลด์สำหรับการกรองการตั้งเบิก/โอนจ่าย
+ */
+async function getExpenseRecordsByDateRangeFromFirestore(startDateStr, endDateStr) {
+  try {
+    // ดึงเอกสารทั้งหมดจาก expense_records แล้วมากรองวันที่บน Client-side เพื่อรองรับทั้งฟอร์แมต YYYY-MM-DD และ YYYY/MM/DD
+    const snapshot = await db.collection('expense_records').get();
+
+    const records = [];
+    snapshot.forEach(doc => {
+      const f = doc.data();
+      const rawDate = String(f.date || f.transferDate || '').replace(/\//g, '-');
+      
+      // กรองเฉพาะรายการที่อยู่ในช่วงวันที่ที่เลือก
+      if (!startDateStr || !endDateStr || (rawDate >= startDateStr && rawDate <= endDateStr)) {
+        records.push({
+          id: doc.id,
+          date: rawDate || '-',
+          category: (f.category || 'อื่นๆ').trim(),
+          itemName: f.itemName || f.payeeName || '-',
+          liters: parseFloat(f.liters || f.qty || 0),
+          amount: parseFloat(f.totalWithVat || f.totalAmount || f.amount || f.total || 0),
+          transferAccount: f.transferAccount || f.fromAccount || f.account || '-',
+          transferDate: String(f.transferDate || '-').replace(/\//g, '-'),
+          remarks: f.remarks || f.details || '-'
+        });
+      }
+    });
+
+    // เรียงลำดับจากวันที่ล่าสุด
+    records.sort((a, b) => (b.date > a.date ? 1 : -1));
+
+    return { success: true, data: records };
+  } catch (err) {
+    console.error("❌ Error in getExpenseRecordsByDateRangeFromFirestore:", err);
     return { success: false, message: err.message };
   }
 }

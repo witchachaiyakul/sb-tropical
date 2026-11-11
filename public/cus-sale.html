@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>รายงานยอดขายตามลูกค้า - SB Tropical</title>
+
+  <!-- CSS Dependencies -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body class="bg-light">
+
+  <!-- TOP NAVBAR -->
+  <nav class="navbar navbar-expand-lg navbar-dark shadow-sm" style="background-color: var(--sb-primary, #0d6efd);">
+    <div class="container-fluid px-4">
+      <a class="navbar-brand d-flex align-items-center fw-bold" href="main.html">
+        <img src="images/sb.png" alt="SB Logo" height="36" class="me-2 bg-white rounded p-1" onerror="this.src='https://lh3.googleusercontent.com/d/1Z2F5s7RXUAmSgA7bKKTqDKsHxdHGg3Cq'">
+        SB Tropical
+      </a>
+      <div class="d-flex align-items-center gap-3">
+        <a href="main.html" class="btn btn-outline-light btn-sm">
+          <i class="bi bi-house-door-fill me-1"></i> หน้าหลัก
+        </a>
+        <button class="btn btn-danger btn-sm shadow-sm" onclick="logout()">
+          <i class="bi bi-box-arrow-right me-1"></i> ออกจากระบบ
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- MAIN CONTENT SECTION -->
+  <section id="customerSalesReportModuleSection" class="container-fluid px-4 py-4">
+    <!-- Header Bar -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2 border-bottom pb-3">
+      <div>
+        <h3 class="fw-bold text-dark mb-1"><i class="bi bi-person-lines-fill text-success me-2"></i>รายงานยอดขายตามลูกค้า</h3>
+        <p class="text-muted small mb-0">สรุปยอดขายรวมสะสม แยกตามชนิดน้ำมัน (95 / ดีเซล) รายบุคคล</p>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-outline-success fw-bold shadow-sm" onclick="loadCustomerSalesReport()">
+          <i class="bi bi-arrow-clockwise me-1"></i> รีเฟรชข้อมูล
+        </button>
+        <a href="main.html" class="btn btn-secondary fw-bold shadow-sm">
+          <i class="bi bi-arrow-left me-1"></i> กลับหน้าหลัก
+        </a>
+      </div>
+    </div>
+
+    <!-- ตารางแสดงรายงานยอดขายตามลูกค้า -->
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+        <h6 class="fw-bold text-dark mb-0">
+          <i class="bi bi-table me-2 text-primary"></i>ตารางสรุปยอดขายแยกตามรายชื่อลูกค้า
+        </h6>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-bordered table-hover align-middle mb-0">
+            <thead class="table-light text-center align-middle">
+              <tr>
+                <th style="width: 5%;">ลำดับ</th>
+                <th style="width: 25%;" class="sortable" onclick="sortCustomerReportTable('name')">
+                  ชื่อลูกค้า / บริษัท <i id="sortIcon_name" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th style="width: 13%;" class="table-danger text-danger sortable" onclick="sortCustomerReportTable('l95')">
+                  95 (ลิตร) <i id="sortIcon_l95" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th style="width: 15%;" class="table-danger text-danger sortable" onclick="sortCustomerReportTable('a95')">
+                  95 (บาท) <i id="sortIcon_a95" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th style="width: 13%;" class="table-secondary text-dark sortable" onclick="sortCustomerReportTable('lDiesel')">
+                  ดีเซล (ลิตร) <i id="sortIcon_lDiesel" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th style="width: 15%;" class="table-secondary text-dark sortable" onclick="sortCustomerReportTable('aDiesel')">
+                  ดีเซล (บาท) <i id="sortIcon_aDiesel" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th style="width: 14%;" class="table-success text-success sortable" onclick="sortCustomerReportTable('totalAmount')">
+                  รวมเงินทั้งหมด (บาท) <i id="sortIcon_totalAmount" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+              </tr>
+            </thead>
+            <tbody id="customerSalesReportTableBody">
+              <tr>
+                <td colspan="7" class="text-center text-muted py-4">
+                  <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                  </div>
+                  กำลังโหลดข้อมูล...
+                </td>
+              </tr>
+            </tbody>
+            <tfoot class="table-light fw-bold text-end align-middle">
+              <tr>
+                <td colspan="2" class="text-center">รวมทั้งหมด</td>
+                <td id="ft95Liters" class="text-danger">0.00</td>
+                <td id="ft95Amount" class="text-danger">0.00</td>
+                <td id="ftDieselLiters" class="text-dark">0.00</td>
+                <td id="ftDieselAmount" class="text-dark">0.00</td>
+                <td id="ftGrandTotal" class="text-success fs-6">0.00</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- JS Dependencies -->
+  <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <!-- Firebase SDK Compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+  <!-- App Core Scripts -->
+  <script src="js/firestore.js"></script>
+  <script src="js/login.js"></script>
+  <script src="js/cus-sale.js"></script>
+</body>
+</html>

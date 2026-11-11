@@ -1,6 +1,8 @@
 // public/js/receipt.js
 
 let unreceiptedCache = [];
+let rcpSortColumn = 'date';
+let rcpSortAsc = true;
 
 document.addEventListener('DOMContentLoaded', function () {
   initRcpFilters();
@@ -40,7 +42,7 @@ async function loadUnreceiptedData() {
   if (tbody) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="9" class="text-center py-4 text-muted">
+        <td colspan="10" class="text-center py-4 text-muted">
           <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
             <span class="visually-hidden">Loading...</span>
           </div>
@@ -93,7 +95,7 @@ function renderUnreceiptedTable(res) {
   if (!tbody) return;
 
   if (!res || !res.success || !res.data || res.data.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">ไม่พบรายการที่ค้างออกใบเสร็จรับเงินในเดือนนี้</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="text-center py-4 text-muted">ไม่พบรายการที่ค้างออกใบเสร็จรับเงินในเดือนนี้</td></tr>';
     unreceiptedCache = [];
     updateRcpBuyerDropdown([]);
     return;
@@ -101,6 +103,7 @@ function renderUnreceiptedTable(res) {
 
   unreceiptedCache = res.data;
   updateRcpBuyerDropdown(unreceiptedCache);
+  updateSortIcons();
   filterUnreceiptedTable();
 }
 
@@ -117,9 +120,29 @@ function filterUnreceiptedTable() {
   });
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">ไม่พบรายการตามผู้ซื้อที่กรอง</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="text-center py-4 text-muted">ไม่พบรายการตามผู้ซื้อที่กรอง</td></tr>';
     return;
   }
+
+  // 📌 จัดเรียงข้อมูลใน filtered ตาม rcpSortColumn และ rcpSortAsc
+  filtered.sort((a, b) => {
+    let valA = a[rcpSortColumn] ?? '';
+    let valB = b[rcpSortColumn] ?? '';
+
+    // การเรียงลำดับข้อมูลประเภทตัวเลข
+    if (['qty', 'liters', 'unitPrice', 'pricePerLiter', 'totalAmount'].includes(rcpSortColumn)) {
+      valA = parseFloat(valA) || 0;
+      valB = parseFloat(valB) || 0;
+      return rcpSortAsc ? valA - valB : valB - valA;
+    }
+
+    // การเรียงลำดับข้อมูลประเภทข้อความและวันที่
+    valA = String(valA);
+    valB = String(valB);
+    return rcpSortAsc 
+      ? valA.localeCompare(valB, 'th', { numeric: true, sensitivity: 'base' })
+      : valB.localeCompare(valA, 'th', { numeric: true, sensitivity: 'base' });
+  });
 
   let html = '';
   filtered.forEach((item) => {
@@ -128,6 +151,7 @@ function filterUnreceiptedTable() {
         <td class="text-center"><input type="checkbox" class="rcp-item-check" value="${item.id}"></td>
         <td class="text-center fw-bold text-secondary">${item.saleNo || '-'}</td>
         <td class="text-center">${formatDateThai(item.date)}</td>
+        <td class="text-center fw-bold text-success">${item.receiptNo || '-'}</td>
         <td class="fw-bold">${item.buyerName || '-'}</td>
         <td><span class="badge bg-secondary">${item.itemType || '-'}</span></td>
         <td>${item.itemName || '-'}</td>
@@ -177,16 +201,17 @@ async function generateBatchReceipts() {
   });
 
   try {
-    // 1. ดึงรายการขายที่เลือกจาก Cache
+    // 1. ดึงข้อมูลรายการขายที่เลือกจาก unreceiptedCache
     const selectedItems = unreceiptedCache.filter(item => selectedIds.includes(item.id));
 
-    // 2. ดึงข้อมูล Buyer Map เพื่อแมปชื่อเต็ม ที่อยู่ เลขภาษี
+    // 2. ดึงข้อมูลผู้ซื้อทั้งหมดเพื่อแมป ชื่อเต็ม/ที่อยู่/เลขภาษี
     const buyerMap = await getBuyerMapFromFirestore();
     const salesDataForGas = selectedItems.map(item => {
       const bInfo = buyerMap[item.buyerName] || {};
       return {
         id: item.id,
         saleNo: item.saleNo,
+        receiptNo: item.receiptNo || '',
         date: item.date,
         buyerName: item.buyerName,
         buyerFullName: bInfo.name || item.buyerName,
@@ -203,21 +228,22 @@ async function generateBatchReceipts() {
       };
     });
 
-    // 3. ส่งข้อมูลให้ GAS หลังบ้านสร้าง PDF (ผ่าน google.script.run หรือ callBackendApi)
+    // 3. ส่งข้อมูลไปประมวลผลที่ GAS
+    let res;
     if (typeof google !== 'undefined' && google.script && google.script.run) {
       google.script.run
-        .withSuccessHandler(async (res) => {
-          await handleReceiptResult(res, selectedIds);
+        .withSuccessHandler(async (response) => {
+          await handleReceiptResponse(response, selectedIds);
         })
         .withFailureHandler((err) => {
           Swal.fire('เกิดข้อผิดพลาด', err.toString(), 'error');
         })
         .createBatchReceiptsFromSalesData(salesDataForGas);
     } else if (typeof callBackendApi === 'function') {
-      const res = await callBackendApi('createBatchReceiptsFromSalesData', { salesDataList: salesDataForGas });
-      await handleReceiptResult(res, selectedIds);
+      res = await callBackendApi('createBatchReceiptsFromSalesData', { salesDataList: salesDataForGas });
+      await handleReceiptResponse(res, selectedIds);
     } else {
-      throw new Error("ไม่พบช่องทางการเชื่อมต่อ Google Apps Script (google.script.run หรือ callBackendApi)");
+      throw new Error("ไม่พบช่องทางการเชื่อมต่อ Google Apps Script");
     }
 
   } catch (err) {
@@ -227,7 +253,7 @@ async function generateBatchReceipts() {
 }
 
 // Helper ประมวลผลผลลัพธ์หลังสร้าง PDF
-async function handleReceiptResult(res, selectedIds) {
+async function handleReceiptResponse(res, selectedIds) {
   if (res && res.success) {
     // อัปเดตสถานะ isReceiptIssued ลง Firestore Direct
     await updateSalesReceiptStatusInFirestore(selectedIds);
@@ -276,4 +302,30 @@ function formatDateThai(dateStr) {
     return `${d}/${m}/${y}`;
   }
   return dateStr;
+}
+
+function sortUnreceiptedTable(columnKey) {
+  if (rcpSortColumn === columnKey) {
+    rcpSortAsc = !rcpSortAsc; // สลับ น้อยไปมาก <-> มากไปน้อย
+  } else {
+    rcpSortColumn = columnKey;
+    rcpSortAsc = true;
+  }
+  updateSortIcons();
+  filterUnreceiptedTable();
+}
+
+// 🟢 ฟังก์ชันอัปเดตไอคอนบนหัวตาราง
+function updateSortIcons() {
+  const columns = ['saleNo', 'date', 'receiptNo', 'buyerName', 'itemType', 'itemName', 'qty', 'unitPrice', 'totalAmount'];
+  columns.forEach(col => {
+    const iconEl = document.getElementById(`sortIcon_${col}`);
+    if (iconEl) {
+      if (col === rcpSortColumn) {
+        iconEl.className = rcpSortAsc ? 'bi bi-sort-down-alt ms-1 text-primary fw-bold' : 'bi bi-sort-up ms-1 text-primary fw-bold';
+      } else {
+        iconEl.className = 'bi bi-arrow-down-up ms-1 text-muted small';
+      }
+    }
+  });
 }

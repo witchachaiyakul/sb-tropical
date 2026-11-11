@@ -94,19 +94,38 @@
             <thead class="table-primary text-center">
               <tr>
                 <th width="40"><input type="checkbox" id="checkAllRcp" onchange="toggleSelectAllRcp(this)"></th>
-                <th>เลขที่บิล</th>
-                <th>วันที่</th>
-                <th>ผู้ซื้อ/ลูกค้า</th>
-                <th>ประเภทสินค้า</th>
-                <th>รายการสินค้า</th>
-                <th>จำนวน</th>
-                <th>ราคา/หน่วย</th>
-                <th>จำนวนเงินรวม</th>
+                <th class="sortable" onclick="sortUnreceiptedTable('saleNo')">
+                  เลขที่บิล <i id="sortIcon_saleNo" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="sortable" onclick="sortUnreceiptedTable('date')">
+                  วันที่ <i id="sortIcon_date" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="sortable" onclick="sortUnreceiptedTable('receiptNo')">
+                  เลขที่ใบเสร็จ <i id="sortIcon_receiptNo" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="sortable" onclick="sortUnreceiptedTable('buyerName')">
+                  ผู้ซื้อ/ลูกค้า <i id="sortIcon_buyerName" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="sortable" onclick="sortUnreceiptedTable('itemType')">
+                  ประเภทสินค้า <i id="sortIcon_itemType" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="sortable" onclick="sortUnreceiptedTable('itemName')">
+                  รายการสินค้า <i id="sortIcon_itemName" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="sortable" onclick="sortUnreceiptedTable('qty')">
+                  จำนวน <i id="sortIcon_qty" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="sortable" onclick="sortUnreceiptedTable('unitPrice')">
+                  ราคา/หน่วย <i id="sortIcon_unitPrice" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
+                <th class="sortable" onclick="sortUnreceiptedTable('totalAmount')">
+                  จำนวนเงินรวม <i id="sortIcon_totalAmount" class="bi bi-arrow-down-up ms-1 text-muted small"></i>
+                </th>
               </tr>
             </thead>
             <tbody id="unreceiptedTableBody">
               <tr>
-                <td colspan="9" class="text-center py-4 text-muted">
+                <td colspan="10" class="text-center py-4 text-muted">
                   <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
                     <span class="visually-hidden">Loading...</span>
                   </div>
