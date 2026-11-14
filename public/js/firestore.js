@@ -1098,6 +1098,132 @@ async function confirmBilling(saleIds, billDateStr, billingData) {
   }
 }
 
+// 🟢 5. ค้นหาเอกสารใบวางบิลจาก collection 'billing_notes'
+async function searchBillingNotes(billNoQuery = '') {
+  try {
+    const cleanQuery = String(billNoQuery || '').trim();
+    const results = [];
+
+    if (cleanQuery) {
+      // ค้นหาจาก Document ID โดยตรงก่อน (เช่น /billing_notes/SBBS1069-0004)
+      const docId = cleanQuery.replace(/\//g, '-');
+      const docSnap = await db.collection('billing_notes').doc(docId).get();
+
+      if (docSnap.exists) {
+        results.push({ id: docSnap.id, ...docSnap.data() });
+      } else {
+        // กรณีค้นหาแบบระบุเลขบางส่วน (Prefix)
+        const querySnap = await db.collection('billing_notes')
+          .where('billNo', '>=', cleanQuery)
+          .where('billNo', '<=', cleanQuery + '\uf8ff')
+          .limit(50)
+          .get();
+
+        querySnap.forEach(doc => {
+          results.push({ id: doc.id, ...doc.data() });
+        });
+      }
+    } else {
+      // หากไม่ระบุคำค้นหา ให้ดึงรายการใบวางบิลล่าสุด 50 รายการ
+      const snap = await db.collection('billing_notes')
+        .orderBy('createdAt', 'desc')
+        .limit(50)
+        .get();
+
+      snap.forEach(doc => {
+        results.push({ id: doc.id, ...doc.data() });
+      });
+    }
+
+    return { success: true, data: results };
+  } catch (err) {
+    console.error('❌ Error in searchBillingNotes:', err);
+    return { success: false, message: err.message, data: [] };
+  }
+}
+
+// 🟢 6. ลบใบวางบิลใน /billing_notes/ และคืนค่าฟิลด์ใน /sales_records/
+async function revertBillingNoteForEdit(billNo) {
+  try {
+    if (!billNo) {
+      return { success: false, message: 'ไม่พบเลขที่ใบวางบิล' };
+    }
+
+    const docId = String(billNo).trim().replace(/\//g, '-');
+    const billRef = db.collection('billing_notes').doc(docId);
+    const billSnap = await billRef.get();
+
+    if (!billSnap.exists) {
+      return { success: false, message: `ไม่พบข้อมูลใบวางบิลเลขที่ ${billNo}` };
+    }
+
+    const billData = billSnap.data();
+    const saleNos = Array.isArray(billData.saleNos) ? billData.saleNos : [];
+    const saleIds = Array.isArray(billData.saleIds) ? billData.saleIds : [];
+
+    // รวมรายการอ้างอิงเอกสารทั้งหมดใน sales_records
+    const targetRefsMap = new Map();
+
+    // 1) ตรวจสอบจาก saleNos (เช่น "SB1069-0002")
+    for (const sNo of saleNos) {
+      const cleanSaleNo = String(sNo).trim();
+      if (!cleanSaleNo) continue;
+
+      const directRef = db.collection('sales_records').doc(cleanSaleNo.replace(/\//g, '-'));
+      const directSnap = await directRef.get();
+
+      if (directSnap.exists) {
+        targetRefsMap.set(directSnap.id, directRef);
+      } else {
+        // กรณี Document ID ไม่ตรงกับ saleNo ให้ค้นหาจากฟิลด์ saleNo
+        const qSnap = await db.collection('sales_records')
+          .where('saleNo', '==', cleanSaleNo)
+          .get();
+        qSnap.forEach(d => targetRefsMap.set(d.id, d.ref));
+      }
+    }
+
+    // 2) ตรวจสอบเผื่อกรณีมี saleIds เก็บไว้ด้วย
+    for (const sId of saleIds) {
+      const cleanId = String(sId).trim();
+      if (cleanId && !targetRefsMap.has(cleanId)) {
+        const ref = db.collection('sales_records').doc(cleanId);
+        const snap = await ref.get();
+        if (snap.exists) targetRefsMap.set(snap.id, ref);
+      }
+    }
+
+    // ใช้ WriteBatch เพื่อลบใบวางบิลและอัปเดต sales_records พร้อมกัน
+    const batch = db.batch();
+
+    // ลบเอกสารใน /billing_notes/
+    batch.delete(billRef);
+
+    // อัปเดตฟิลด์ใน /sales_records/ ทุกรายการที่เกี่ยวข้อง
+    targetRefsMap.forEach((docRef) => {
+      batch.update(docRef, {
+        billDate: "",
+        billNo: "",
+        isBilled: false
+      });
+    });
+
+    await batch.commit();
+
+    return {
+      success: true,
+      buyerName: billData.buyerName || '',
+      updatedCount: targetRefsMap.size,
+      message: `ยกเลิกใบวางบิล ${billNo} และคืนสถานะรายการขายจำนวน ${targetRefsMap.size} รายการเรียบร้อยแล้ว`
+    };
+  } catch (err) {
+    console.error('❌ Error in revertBillingNoteForEdit:', err);
+    return { success: false, message: err.message };
+  }
+}
+
+
+
 // ==================== EXPENSE SYSTEM HELPERS ====================
 
 // 🟢 1. สร้างเลขที่บิลค่าใช้จ่ายถัดไป (เช่น SBEXP1069-0001)

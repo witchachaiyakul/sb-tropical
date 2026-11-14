@@ -84,9 +84,13 @@
             <span class="fw-bold text-success fs-5 ms-1" id="selectedBillTotal">0.00</span> บาท
           </div>
         </div>
-        <button class="btn btn-success fw-bold shadow-sm" onclick="previewBillingNote()">
-          <i class="bi bi-eye-fill me-1"></i> ดูตัวอย่างใบวางบิล (Preview)
-        </button>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <button type="button" class="btn btn-warning fw-bold shadow-sm text-dark" onclick="openEditBillingModal()">
+              <i class="bi bi-pencil-square me-1"></i> แก้ไขใบวางบิล
+            </button>
+            <button type="button" class="btn btn-success fw-bold shadow-sm" onclick="previewBillingNote()">
+              <i class="bi bi-eye-fill me-1"></i> ดูตัวอย่างใบวางบิล (Preview)
+            </button>
       </div>
 
       <div class="table-responsive">
@@ -245,6 +249,65 @@
       </div>
     </div>
   </div>
+
+  <!-- Modal ค้นหาและแก้ไขใบวางบิล -->
+<div class="modal fade" id="editBillingModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title fw-bold">
+          <i class="bi bi-pencil-square me-2"></i>ค้นหาและแก้ไขใบวางบิล
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-4">
+        <!-- ช่องค้นหาเลขที่ใบวางบิล -->
+        <div class="row g-2 align-items-center mb-3">
+          <div class="col-12 col-md-6">
+            <div class="input-group">
+              <span class="input-group-text bg-light fw-bold">เลขที่ใบวางบิล</span>
+              <input type="text" class="form-control" id="searchEditBillNoInput" 
+                     placeholder="ระบุเลขที่ใบวางบิล เช่น SBBS1069-0004 (เว้นว่างเพื่อดูทั้งหมด)"
+                     onkeyup="if(event.key === 'Enter') searchBillingNotesForEdit()">
+              <button class="btn btn-primary fw-bold" type="button" onclick="searchBillingNotesForEdit()">
+                <i class="bi bi-search me-1"></i> ค้นหา
+              </button>
+            </div>
+          </div>
+          <div class="col-12 col-md-6 text-md-end">
+            <small class="text-muted">
+              * เมื่อกด <strong>แก้ไข</strong> ระบบจะลบใบวางบิลเดิมและคืนสถานะรายการขายกลับเป็น <code>ยังไม่วางบิล</code> เพื่อเลือกออกบิลใหม่
+            </small>
+          </div>
+        </div>
+
+        <!-- ตารางแสดงรายการใบวางบิล -->
+        <div class="table-responsive">
+          <table class="table table-bordered table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th class="text-center" style="width: 150px;">เลขที่ใบวางบิล (billNo)</th>
+                <th style="width: 220px;">ชื่อผู้ซื้อ (buyerName)</th>
+                <th class="text-center" style="width: 180px;">วันที่สร้าง (createdAt)</th>
+                <th class="text-end" style="width: 140px;">ยอดรวม (grandTotal)</th>
+                <th>รายการใบขาย (saleNos)</th>
+                <th class="text-center" style="width: 110px;">จัดการ</th>
+              </tr>
+            </thead>
+            <tbody id="editBillingTableBody">
+              <tr>
+                <td colspan="6" class="text-center text-muted py-4">กำลังโหลดข้อมูล...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer bg-light">
+        <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">ปิดหน้าต่าง</button>
+      </div>
+    </div>
+  </div>
+</div>
 
   <!-- Scripts -->
   <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>

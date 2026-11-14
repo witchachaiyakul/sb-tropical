@@ -512,3 +512,150 @@ function resetBillingForm() {
 function loadUnpaidSales() {
   loadBillingData();
 }
+
+// ==================== EDIT / CANCEL BILLING NOTE ====================
+function openEditBillingModal() {
+  const inputEl = document.getElementById('searchEditBillNoInput');
+  if (inputEl) inputEl.value = '';
+
+  const modalEl = document.getElementById('editBillingModal');
+  if (modalEl) {
+    const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modalInstance.show();
+    searchBillingNotesForEdit();
+  }
+}
+
+function formatBillCreatedAt(createdAt) {
+  if (!createdAt) return '-';
+  try {
+    let dateObj = null;
+    if (typeof createdAt.toDate === 'function') {
+      dateObj = createdAt.toDate();
+    } else if (createdAt.seconds) {
+      dateObj = new Date(createdAt.seconds * 1000);
+    } else {
+      dateObj = new Date(createdAt);
+    }
+
+    if (isNaN(dateObj.getTime())) return String(createdAt);
+
+    return dateObj.toLocaleString('th-TH', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  } catch (e) {
+    return '-';
+  }
+}
+
+async function searchBillingNotesForEdit() {
+  const inputEl = document.getElementById('searchEditBillNoInput');
+  const tbody = document.getElementById('editBillingTableBody');
+  if (!tbody) return;
+
+  const queryStr = inputEl ? inputEl.value.trim() : '';
+  tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm me-2"></span>กำลังค้นหาข้อมูล...</td></tr>`;
+
+  try {
+    const res = await searchBillingNotes(queryStr);
+
+    if (!res || !res.success) {
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-4">เกิดข้อผิดพลาด: ${res ? res.message : 'ไม่สามารถดึงข้อมูลได้'}</td></tr>`;
+      return;
+    }
+
+    const list = res.data || [];
+    if (list.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-4">ไม่พบข้อมูลใบวางบิลที่ค้นหา</td></tr>`;
+      return;
+    }
+
+    let html = '';
+    list.forEach(item => {
+      const billNo = item.billNo || item.id || '-';
+      const buyerName = item.buyerName || '-';
+      const createdAtText = formatBillCreatedAt(item.createdAt);
+      const grandTotal = parseFloat(item.grandTotal || 0).toLocaleString('th-TH', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+
+      const saleNosArr = Array.isArray(item.saleNos) ? item.saleNos : [];
+      const saleNosBadges = saleNosArr.length > 0
+        ? saleNosArr.map(s => `<span class="badge bg-light text-dark border me-1 mb-1">${s}</span>`).join('')
+        : '-';
+
+      html += `
+        <tr>
+          <td class="text-center fw-bold text-primary">${billNo}</td>
+          <td>${buyerName}</td>
+          <td class="text-center small">${createdAtText}</td>
+          <td class="text-end fw-bold text-success">${grandTotal}</td>
+          <td>${saleNosBadges}</td>
+          <td class="text-center">
+            <button type="button" class="btn btn-sm btn-warning fw-bold text-dark" onclick="confirmEditBillingNote('${billNo}')">
+              <i class="bi bi-pencil-fill me-1"></i> แก้ไข
+            </button>
+          </td>
+        </tr>
+      `;
+    });
+
+    tbody.innerHTML = html;
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-4">เกิดข้อผิดพลาด: ${err.message}</td></tr>`;
+  }
+}
+
+async function confirmEditBillingNote(billNo) {
+  const confirmResult = await Swal.fire({
+    title: `ยืนยันการแก้ไขใบวางบิล ${billNo}?`,
+    html: `ระบบจะดำเนินการ:<br>
+           1. ลบใบวางบิลเลขที่ <b>${billNo}</b> ออกจากระบบ<br>
+           2. คืนสถานะรายการขายทั้งหมดในบิลนี้กลับเป็น <b>ยังไม่วางบิล</b> เพื่อให้คุณเลือกและออกใบวางบิลใหม่`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#f59e0b',
+    cancelButtonColor: '#6c757d',
+    confirmButtonText: 'ยืนยันแก้ไข',
+    cancelButtonText: 'ยกเลิก'
+  });
+
+  if (!confirmResult.isConfirmed) return;
+
+  Swal.fire({
+    title: 'กำลังอัปเดตข้อมูล...',
+    text: 'กำลังลบใบวางบิลและคืนสถานะรายการขาย',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  try {
+    const res = await revertBillingNoteForEdit(billNo);
+
+    if (res && res.success) {
+      // ปิด Modal แก้ไขใบวางบิล
+      const modalEl = document.getElementById('editBillingModal');
+      const modalInstance = bootstrap.Modal.getInstance(modalEl);
+      if (modalInstance) modalInstance.hide();
+
+      await Swal.fire({
+        title: 'ดำเนินการสำเร็จ!',
+        text: res.message,
+        icon: 'success'
+      });
+
+      // โหลดตารางรายการขายค้างวางบิลใหม่เพื่อให้รายการที่ถูกปลดล็อกแสดงขึ้นมาทันที
+      await loadBillingData();
+    } else {
+      Swal.fire('เกิดข้อผิดพลาด', res ? res.message : 'ไม่สามารถแก้ไขใบวางบิลได้', 'error');
+    }
+  } catch (err) {
+    Swal.fire('เกิดข้อผิดพลาดจากระบบ', err.message || err.toString(), 'error');
+  }
+}
