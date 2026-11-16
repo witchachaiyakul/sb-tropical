@@ -12,22 +12,25 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 function initYearDropdown() {
-  const yearSelect = document.getElementById('pmtFilterYear');
-  if (!yearSelect) return;
+  const startYearSelect = document.getElementById('pmtStartYear');
+  const endYearSelect = document.getElementById('pmtEndYear');
+  const startMonthSelect = document.getElementById('pmtStartMonth');
+  const endMonthSelect = document.getElementById('pmtEndMonth');
 
-  const currentYearBE = new Date().getFullYear() + 543;
-  let html = '';
+  const now = new Date();
+  const currentYearBE = now.getFullYear() + 543;
+  const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+
+  let yearHtml = '';
   for (let y = currentYearBE - 3; y <= currentYearBE + 1; y++) {
     const selected = (y === currentYearBE) ? 'selected' : '';
-    html += `<option value="${y}" ${selected}>${y}</option>`;
+    yearHtml += `<option value="${y}" ${selected}>${y}</option>`;
   }
-  yearSelect.innerHTML = html;
 
-  const monthSelect = document.getElementById('pmtFilterMonth');
-  if (monthSelect) {
-    const currentM = String(new Date().getMonth() + 1).padStart(2, '0');
-    monthSelect.value = currentM;
-  }
+  if (startYearSelect) startYearSelect.innerHTML = yearHtml;
+  if (endYearSelect) endYearSelect.innerHTML = yearHtml;
+  if (startMonthSelect) startMonthSelect.value = currentMonth;
+  if (endMonthSelect) endMonthSelect.value = currentMonth;
 }
 
 function switchPaymentTab(tabName) {
@@ -53,10 +56,25 @@ function switchPaymentTab(tabName) {
 }
 
 async function loadPaymentManagementData() {
-  const m = document.getElementById('pmtFilterMonth').value;
-  const yBE = document.getElementById('pmtFilterYear').value;
-  const yAD = parseInt(yBE, 10) - 543;
-  const yearMonth = yAD + "-" + m;
+  const startM = document.getElementById('pmtStartMonth').value;
+  const startYBE = parseInt(document.getElementById('pmtStartYear').value, 10);
+  const endM = document.getElementById('pmtEndMonth').value;
+  const endYBE = parseInt(document.getElementById('pmtEndYear').value, 10);
+
+  const startYAD = startYBE - 543;
+  const endYAD = endYBE - 543;
+
+  const startDateStr = `${startYAD}/${startM}/01`;
+  const lastDay = new Date(endYAD, parseInt(endM, 10), 0).getDate();
+  const endDateStr = `${endYAD}/${endM}/${String(lastDay).padStart(2, '0')}`;
+
+  if (startDateStr > endDateStr) {
+    if (typeof Swal !== 'undefined') {
+      Swal.fire('ช่วงเวลาไม่ถูกต้อง', 'เดือน/ปี เริ่มต้น ต้องไม่มากกว่า เดือน/ปี สิ้นสุด', 'warning');
+    }
+    return;
+  }
+
   const buyerFilter = document.getElementById('pmtFilterName') ? document.getElementById('pmtFilterName').value : 'ALL';
 
   if (typeof Swal !== 'undefined') {
@@ -66,13 +84,13 @@ async function loadPaymentManagementData() {
   try {
     if (currentPaymentTab === 'credit') {
       document.getElementById('creditSalesTableBody').innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">กำลังดึงข้อมูลลูกหนี้เงินเชื่อ...</td></tr>';
-      const res = await getCreditSalesByMonth(yearMonth, buyerFilter);
+      const res = await getCreditSalesByDateRange(startDateStr, endDateStr, buyerFilter);
       if (typeof Swal !== 'undefined') Swal.close();
       renderCreditSalesTable(res);
     } else {
       document.getElementById('companyExpenseTableBody').innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">กำลังดึงข้อมูลค่าใช้จ่ายบริษัท...</td></tr>';
       await initTransferAccounts();
-      const res = await getCompanyExpensesByMonth(yearMonth);
+      const res = await getCompanyExpensesByDateRange(startDateStr, endDateStr);
       if (typeof Swal !== 'undefined') Swal.close();
       renderCompanyExpenseTable(res);
     }
@@ -460,5 +478,76 @@ function updateCompanyExpenseTotal(displayData) {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     });
+  }
+}
+
+// 🟢 ดึงรายการขายเงินเชื่อตามช่วงวันที่ (YYYY/MM/DD ถึง YYYY/MM/DD)
+async function getCreditSalesByDateRange(startDateStr, endDateStr, buyerFilter = 'ALL') {
+  try {
+    const startFormatted = startDateStr ? startDateStr.replace(/-/g, '/') : '';
+    const endFormatted = endDateStr ? endDateStr.replace(/-/g, '/') : '';
+
+    let query = db.collection('sales_records');
+    if (startFormatted) query = query.where('date', '>=', startFormatted);
+    if (endFormatted) query = query.where('date', '<=', endFormatted);
+
+    const snapshot = await query.limit(3000).get();
+    const list = [];
+
+    snapshot.forEach(doc => {
+      const f = doc.data();
+      const buyerName = (f.buyerName || '-').trim();
+      if (buyerFilter && buyerFilter !== 'ALL' && buyerName !== buyerFilter.trim()) {
+        return;
+      }
+
+      const pType = String(f.paymentType || '').trim();
+      const pStatus = String(f.paymentStatus || 'unpaid').trim().toLowerCase();
+
+      if (pType === 'เงินเชื่อ' || pStatus === 'unpaid') {
+        list.push({
+          docId: doc.id,
+          id: doc.id,
+          ...f,
+          paymentStatus: pStatus || 'unpaid'
+        });
+      }
+    });
+
+    list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    return { success: true, data: list };
+  } catch (err) {
+    console.error("❌ Error in getCreditSalesByDateRange:", err);
+    return { success: false, message: err.message, data: [] };
+  }
+}
+
+// 🟢 ดึงรายการค่าใช้จ่ายบริษัทตามช่วงวันที่ (YYYY/MM/DD ถึง YYYY/MM/DD)
+async function getCompanyExpensesByDateRange(startDateStr, endDateStr) {
+  try {
+    const startFormatted = startDateStr ? startDateStr.replace(/-/g, '/') : '';
+    const endFormatted = endDateStr ? endDateStr.replace(/-/g, '/') : '';
+
+    let query = db.collection('expense_records');
+    if (startFormatted) query = query.where('date', '>=', startFormatted);
+    if (endFormatted) query = query.where('date', '<=', endFormatted);
+
+    const snapshot = await query.limit(3000).get();
+    const records = [];
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      records.push({
+        docId: doc.id,
+        id: doc.id,
+        ...data
+      });
+    });
+
+    records.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    return { success: true, data: records };
+  } catch (err) {
+    console.error("❌ Error in getCompanyExpensesByDateRange:", err);
+    return { success: false, message: err.message, data: [] };
   }
 }

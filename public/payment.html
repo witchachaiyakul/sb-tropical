@@ -46,11 +46,12 @@
       </div>
       <div class="card-body p-4">
         
-        <!-- ตัวกรอง เดือน / พ.ศ. / ชื่อผู้ซื้อ-ผู้รับเงิน และ สถานะ -->
-        <div class="row g-3 mb-4 bg-light p-3 rounded align-items-end border">
-          <div class="col-6 col-md-2">
-            <label class="form-label fw-bold mb-1"><i class="bi bi-calendar-month me-1"></i>เลือกเดือน</label>
-            <select id="pmtFilterMonth" class="form-select" onchange="loadPaymentManagementData()">
+<!-- ตัวกรอง ตั้งแต่ เดือน/พ.ศ. ถึง เดือน/พ.ศ. / ชื่อผู้ซื้อ-ผู้รับเงิน และ สถานะ -->
+      <div class="row g-3 mb-4 bg-light p-3 rounded align-items-end">
+        <div class="col-12 col-xl-5">
+          <div class="d-flex flex-wrap align-items-center gap-2 bg-white p-2 rounded border">
+            <span class="fw-bold text-secondary small"><i class="bi bi-calendar-range me-1"></i>ตั้งแต่:</span>
+            <select id="pmtStartMonth" class="form-select form-select-sm w-auto" onchange="loadPaymentManagementData()">
               <option value="01">มกราคม</option>
               <option value="02">กุมภาพันธ์</option>
               <option value="03">มีนาคม</option>
@@ -64,31 +65,50 @@
               <option value="11">พฤศจิกายน</option>
               <option value="12">ธันวาคม</option>
             </select>
-          </div>
-          <div class="col-6 col-md-2">
-            <label class="form-label fw-bold mb-1"><i class="bi bi-calendar-event me-1"></i>เลือก พ.ศ.</label>
-            <select id="pmtFilterYear" class="form-select" onchange="loadPaymentManagementData()"></select>
-          </div>
-          <div class="col-12 col-md-3">
-            <label id="lblPmtFilterName" class="form-label fw-bold mb-1"><i class="bi bi-person me-1"></i>กรองผู้ซื้อ</label>
-            <select id="pmtFilterName" class="form-select" onchange="filterPaymentTable()">
-              <option value="ALL">-- แสดงทั้งหมด --</option>
+            <select id="pmtStartYear" class="form-select form-select-sm w-auto" onchange="loadPaymentManagementData()"></select>
+
+            <span class="fw-bold text-secondary small ms-1">ถึง:</span>
+            <select id="pmtEndMonth" class="form-select form-select-sm w-auto" onchange="loadPaymentManagementData()">
+              <option value="01">มกราคม</option>
+              <option value="02">กุมภาพันธ์</option>
+              <option value="03">มีนาคม</option>
+              <option value="04">เมษายน</option>
+              <option value="05">พฤษภาคม</option>
+              <option value="06">มิถุนายน</option>
+              <option value="07">กรกฎาคม</option>
+              <option value="08">สิงหาคม</option>
+              <option value="09">กันยายน</option>
+              <option value="10">ตุลาคม</option>
+              <option value="11">พฤศจิกายน</option>
+              <option value="12">ธันวาคม</option>
             </select>
-          </div>
-          <div class="col-12 col-md-3">
-            <label class="form-label fw-bold mb-1"><i class="bi bi-funnel me-1"></i>กรองสถานะ</label>
-            <select id="pmtFilterStatus" class="form-select" onchange="filterPaymentTable()">
-              <option value="UNPAID" selected>ยังไม่ชำระ / ยังไม่โอน</option>
-              <option value="PAID">ชำระแล้ว / โอนแล้ว</option>
-              <option value="ALL">-- แสดงทั้งหมด --</option>
-            </select>
-          </div>
-          <div class="col-12 col-md-2 text-end">
-            <button class="btn btn-primary w-100 fw-bold" onclick="loadPaymentManagementData()">
-              <i class="bi bi-search me-1"></i> ค้นหา
-            </button>
+            <select id="pmtEndYear" class="form-select form-select-sm w-auto" onchange="loadPaymentManagementData()"></select>
           </div>
         </div>
+
+        <!-- 🟢 Dropdown แชร์ร่วมกันสำหรับกรอง ผู้ซื้อ หรือ ร้านค้า/ผู้รับเงิน -->
+        <div class="col-12 col-md-4 col-xl-3">
+          <label id="lblPmtFilterName" class="form-label fw-bold mb-1"><i class="bi bi-person me-1"></i>กรองผู้ซื้อ</label>
+          <select id="pmtFilterName" class="form-select" onchange="filterPaymentTable()">
+            <option value="ALL">-- แสดงทุกผู้ซื้อ --</option>
+          </select>
+        </div>
+
+        <div class="col-12 col-md-4 col-xl-2">
+          <label class="form-label fw-bold mb-1"><i class="bi bi-funnel me-1"></i>กรองสถานะ</label>
+          <select id="pmtFilterStatus" class="form-select" onchange="filterPaymentTable()">
+            <option value="UNPAID" selected>ยังไม่ชำระ / ยังไม่โอน</option>
+            <option value="PAID">ชำระแล้ว / โอนแล้ว</option>
+            <option value="ALL">-- แสดงทั้งหมด --</option>
+          </select>
+        </div>
+
+        <div class="col-12 col-md-4 col-xl-2 text-end">
+          <button class="btn btn-primary w-100 fw-bold" onclick="loadPaymentManagementData()">
+            <i class="bi bi-search me-1"></i> ค้นหา
+          </button>
+        </div>
+      </div>
 
         <!-- ปุ่มใหญ่ 2 ปุ่มสลับ Tab -->
         <div class="row g-2 mb-4">

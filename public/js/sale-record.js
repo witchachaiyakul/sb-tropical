@@ -218,6 +218,10 @@ function calculateTotal() {
 }
 
 async function updateSaleNoPreview() {
+  // ✅ ป้องกันไม่ให้รันเลขที่เอกสารใหม่มาทับเลขเดิม หากกำลังอยู่ในโหมดแก้ไข
+  const editDocId = document.getElementById('editDocId')?.value;
+  if (editDocId) return;
+
   const dateEl = document.getElementById('saleDate');
   const rawDate = dateEl ? dateEl.value : '';
   const dateForDB = formatDateForDB(rawDate) || new Date().toISOString().split('T')[0];
@@ -515,7 +519,8 @@ function editRecord(id) {
       }
       if (y > 2400) y -= 543;
       if (typeof fp !== 'undefined' && fp) {
-        fp.setDate(new Date(y, m, d), true);
+        // ✅ เปลี่ยนจาก true เป็น false เพื่อไม่ให้กระตุ้น onChange ตอนโหลดข้อมูลเดิม
+        fp.setDate(new Date(y, m, d), false);
       } else {
         document.getElementById('saleDate').value = `${String(d).padStart(2, '0')}/${String(m + 1).padStart(2, '0')}/${y + 543}`;
       }
