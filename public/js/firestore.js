@@ -109,48 +109,77 @@ async function saveBuyerRecord(payload) {
 }
 
 // ==================== 3. SALES NUMBER TRACKER (Doc: 'sales_no/current') ====================
+function parseSalePeriod(dateStr) {
+  let dateObj = new Date();
+  if (dateStr) {
+    const parts = String(dateStr).trim().split(/[\/\-]/);
+    if (parts.length === 3) {
+      let p0 = parseInt(parts[0], 10);
+      let p1 = parseInt(parts[1], 10);
+      let p2 = parseInt(parts[2], 10);
+      let y, m, d;
+      if (parts[0].length === 4) { // YYYY-MM-DD
+        y = p0 > 2400 ? p0 - 543 : p0;
+        m = p1 - 1;
+        d = p2;
+      } else { // DD/MM/YYYY
+        d = p0;
+        m = p1 - 1;
+        y = p2 > 2400 ? p2 - 543 : p2;
+      }
+      dateObj = new Date(y, m, d);
+    }
+  }
+  if (isNaN(dateObj.getTime())) dateObj = new Date();
+
+  const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(dateObj.getFullYear());
+  const yyBE = String(dateObj.getFullYear() + 543).slice(-2);
+
+  return {
+    docIdMMYYYY: `${mm}${yyyy}`,           // เช่น "112026"
+    sortKeyYYYYMM: Number(`${yyyy}${mm}`), // เช่น 202611
+    prefix: `SB${mm}${yyBE}`               // เช่น "SB1169"
+  };
+}
+
 async function getNextSaleNo(dateStr) {
   try {
-    let dateObj = new Date();
-    if (dateStr) {
-      const parts = dateStr.split(/[\/\-]/);
-      if (parts.length === 3) {
-        let y = parseInt(parts[0], 10);
-        let m = parseInt(parts[1], 10) - 1;
-        let d = parseInt(parts[2], 10);
-        if (y > 2400) y -= 543;
-        dateObj = new Date(y, m, d);
-      }
-    }
-    if (isNaN(dateObj.getTime())) dateObj = new Date();
+    const target = parseSalePeriod(dateStr);
+    const trackerDoc = await db.collection('sales_no').doc(target.docIdMMYYYY).get();
 
-    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-    const yearBE = String(dateObj.getFullYear() + 543).slice(-2);
-    const currentPrefix = "SB" + month + yearBE;
-
-    const trackerDoc = await db.collection('sales_no').doc('current').get();
-    let lastPrefix = "";
     let lastNumber = 0;
 
     if (trackerDoc.exists) {
-      const trackerData = trackerDoc.data();
-      lastPrefix = trackerData.last_prefix || "";
-      lastNumber = Number(trackerData.last_number || 0);
+      // กรณีมีตัวนับของเดือนนี้อยู่แล้ว -> อ่านแค่ 1 Doc (ประหยัด Read สูงสุด)
+      lastNumber = Number(trackerDoc.data().last_number || 0);
+    } else {
+      // กรณียังไม่มีตัวนับของเดือนนี้ (เช่น ย้อนไปคีย์เดือนเก่าก่อนอัปเดตระบบ)
+      // ค้นหาเลขสูงสุดที่มีอยู่จริงใน sales_records ของเดือนนั้นเพียงครั้งเดียวเพื่อตั้งต้นให้ถูกต้อง
+      const snapshot = await db.collection('sales_records')
+        .where('saleNo', '>=', target.prefix + '-')
+        .where('saleNo', '<=', target.prefix + '-\uf8ff')
+        .get();
+
+      snapshot.forEach(doc => {
+        const sNo = String(doc.data().saleNo || '');
+        const numPart = parseInt(sNo.replace(target.prefix + '-', ''), 10);
+        if (!isNaN(numPart) && numPart > lastNumber) {
+          lastNumber = numPart;
+        }
+      });
     }
 
-    let nextNumber = 1;
-    if (lastPrefix === currentPrefix) {
-      nextNumber = lastNumber + 1;
-    }
-
+    const nextNumber = lastNumber + 1;
     const formattedNumber = String(nextNumber).padStart(4, '0');
-    const fullSaleNo = currentPrefix + "-" + formattedNumber;
+    const fullSaleNo = `${target.prefix}-${formattedNumber}`;
 
     return {
       success: true,
       saleNo: fullSaleNo,
-      prefix: currentPrefix,
-      number: nextNumber
+      prefix: target.prefix,
+      number: nextNumber,
+      trackerDocId: target.docIdMMYYYY
     };
   } catch (err) {
     console.error("❌ Error in getNextSaleNo:", err);
@@ -158,11 +187,20 @@ async function getNextSaleNo(dateStr) {
   }
 }
 
-async function updateSalesNoTracker(prefix, number) {
+async function updateSalesNoTracker(prefix, number, trackerDocId) {
   try {
-    await db.collection('sales_no').doc('current').set({
+    let docKey = trackerDocId;
+    if (!docKey && prefix && prefix.length === 6) {
+      const mm = prefix.slice(2, 4);
+      const yyyy = String(2500 + parseInt(prefix.slice(4, 6), 10) - 543);
+      docKey = `${mm}${yyyy}`;
+    }
+    if (!docKey) return;
+
+    await db.collection('sales_no').doc(docKey).set({
       last_prefix: prefix,
-      last_number: number
+      last_number: number,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
   } catch (e) {
     console.error("❌ Error updateSalesNoTracker:", e);
@@ -177,40 +215,29 @@ async function saveSaleRecord(data) {
     }
 
     const isUpdate = !!data.docId;
-    let saleNo = data.saleNo || '';
-    let trackerPrefix = '';
-    let trackerNumber = 0;
-
-    if (!isUpdate) {
-      const saleNoInfo = await getNextSaleNo(data.date);
-      if (saleNoInfo && saleNoInfo.success) {
-        saleNo = saleNoInfo.saleNo;
-        trackerPrefix = saleNoInfo.prefix;
-        trackerNumber = saleNoInfo.number;
-      } else {
-        return { success: false, message: 'ไม่สามารถสร้างเลขที่ใบขายได้' };
-      }
-    }
-
-    const docId = isUpdate ? data.docId : saleNo.replace(/\//g, "-");
-    if (!docId) {
-      return { success: false, message: 'รหัสเอกสาร (docId) ไม่ถูกต้อง' };
-    }
-
     const safeNum = (val) => {
       const n = parseFloat(val);
       return isNaN(n) ? 0 : n;
     };
-
     const safeInt = (val, defaultVal) => {
       const n = parseInt(val, 10);
       return isNaN(n) ? (defaultVal || 0) : n;
     };
 
-    let formattedDate = String(data.date || '').replace(/-/g, '/').trim();
+    const formattedDate = String(data.date || '').replace(/-/g, '/').trim();
+    const targetPeriod = parseSalePeriod(formattedDate);
 
-    const payload = {
-      saleNo: saleNo,
+    // หาเลขตั้งต้นของเดือนนั้น (รองรับการย้อนหลังข้ามเดือน)
+    let initialLastNumber = 0;
+    if (!isUpdate) {
+      const nextInfo = await getNextSaleNo(formattedDate);
+      if (!nextInfo || !nextInfo.success) {
+        return { success: false, message: 'ไม่สามารถสร้างเลขที่ใบขายได้' };
+      }
+      initialLastNumber = nextInfo.number - 1;
+    }
+
+    const basePayload = {
       receiptNo: data.receiptNo || '',
       date: formattedDate,
       buyerName: data.buyerName || '',
@@ -229,34 +256,86 @@ async function saveSaleRecord(data) {
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
 
+    let finalSaleNo = data.saleNo || '';
+    let finalDocId = isUpdate ? data.docId : '';
+
+    // 🔒 ใช้ Transaction จองเลขบิลของเดือนนั้น + บันทึกข้อมูลพร้อมกัน
     if (!isUpdate) {
-      payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-      payload.isBilled = false;
-      payload.isReceiptIssued = false;
+      const trackerRef = db.collection('sales_no').doc(targetPeriod.docIdMMYYYY);
+
+      await db.runTransaction(async (transaction) => {
+        const trackerDoc = await transaction.get(trackerRef);
+        let currentNum = initialLastNumber;
+        if (trackerDoc.exists) {
+          currentNum = Number(trackerDoc.data().last_number || 0);
+        }
+
+        let candidateNum = currentNum + 1;
+        let candidateSaleNo = '';
+        let candidateDocId = '';
+        let saleRef = null;
+
+        // วนหาเลขถัดไปที่ยังไม่ถูกใช้จริงใน sales_records
+        while (true) {
+          candidateSaleNo = `${targetPeriod.prefix}-${String(candidateNum).padStart(4, '0')}`;
+          candidateDocId = candidateSaleNo.replace(/\//g, "-");
+          saleRef = db.collection('sales_records').doc(candidateDocId);
+
+          const existingSale = await transaction.get(saleRef);
+          if (!existingSale.exists) {
+            break;
+          }
+          candidateNum++;
+        }
+
+        const newPayload = {
+          ...basePayload,
+          saleNo: candidateSaleNo,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          isBilled: false,
+          isReceiptIssued: false
+        };
+
+        transaction.set(saleRef, newPayload);
+        transaction.set(trackerRef, {
+          last_prefix: targetPeriod.prefix,
+          last_number: candidateNum,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        finalSaleNo = candidateSaleNo;
+        finalDocId = candidateDocId;
+      });
+    } else {
+      if (!finalDocId) {
+        return { success: false, message: 'รหัสเอกสาร (docId) ไม่ถูกต้อง' };
+      }
+      const updatePayload = {
+        ...basePayload,
+        saleNo: finalSaleNo
+      };
+      await db.collection('sales_records').doc(finalDocId).set(updatePayload, { merge: true });
     }
 
-    await db.collection('sales_records').doc(docId).set(payload, { merge: true });
-
-    if (!isUpdate && trackerPrefix && trackerNumber) {
-      await updateSalesNoTracker(trackerPrefix, trackerNumber);
-    }
-
-    const isFuelSale = (payload.itemType === 'น้ำมัน' || (typeof getFuelDocId === 'function' && getFuelDocId(payload.itemName))) && payload.liters > 0;
+    // ⛽ ตัดสต็อกน้ำมันอัตโนมัติ (ระบบจะตัดยอดตามวันที่ย้อนหลังของบิลให้อัตโนมัติ)
+    const finalPayload = { ...basePayload, saleNo: finalSaleNo };
+    const isFuelSale = (finalPayload.itemType === 'น้ำมัน' || (typeof getFuelDocId === 'function' && getFuelDocId(finalPayload.itemName))) && finalPayload.liters > 0;
     if (isFuelSale && typeof updateStockOnFuelSale === 'function') {
       try {
-        await updateStockOnFuelSale(payload, isUpdate);
+        await updateStockOnFuelSale(finalPayload, isUpdate);
       } catch (stockErr) {
         console.warn("⚠️ บันทึกรายการขายสำเร็จ แต่ตัดสต็อกน้ำมันผิดพลาด:", stockErr);
       }
     }
 
+    // 👤 อัปเดตยอดขายสะสมของลูกค้า
     if (data.buyerName && typeof updateBuyerSalesSummary === 'function') {
       try {
         await updateBuyerSalesSummary(
           data.buyerName,
-          payload.itemName,
-          safeNum(payload.liters || payload.qty),
-          safeNum(payload.totalAmount),
+          finalPayload.itemName,
+          safeNum(finalPayload.liters || finalPayload.qty),
+          safeNum(finalPayload.totalAmount),
           isUpdate
         );
       } catch (buyerErr) {
@@ -264,7 +343,7 @@ async function saveSaleRecord(data) {
       }
     }
 
-    return { success: true, message: 'บันทึกสำเร็จ', saleNo: saleNo, docId: docId };
+    return { success: true, message: 'บันทึกสำเร็จ', saleNo: finalSaleNo, docId: finalDocId };
   } catch (err) {
     console.error("❌ Error in saveSaleRecord:", err);
     return { success: false, message: err.message };

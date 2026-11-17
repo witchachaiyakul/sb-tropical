@@ -72,10 +72,26 @@ function updateDisplayToBE(instance) {
 }
 
 function initSalesModuleEvents() {
+  // 1. ผูก Event Submit ฟอร์มการขาย
   const salesForm = document.getElementById('salesForm');
   if (salesForm) {
     salesForm.removeEventListener('submit', handleSalesSubmit);
     salesForm.addEventListener('submit', handleSalesSubmit);
+  }
+
+  // 2. 🔒 ดักจับตอนปิด Modal (กดปุ่ม X หรือกดยกเลิก) ให้ล้างค่าฟอร์มและ editDocId ทันที
+  const saleModalEl = document.getElementById('saleModal');
+  if (saleModalEl && !saleModalEl.dataset.resetBound) {
+    saleModalEl.addEventListener('hidden.bs.modal', function () {
+      if (typeof resetForm === 'function') {
+        resetForm();
+      }
+      const modalLabel = document.getElementById('saleModalLabel');
+      if (modalLabel) {
+        modalLabel.innerHTML = `<i class="bi bi-plus-circle me-2"></i>บันทึกข้อมูลการขาย`;
+      }
+    });
+    saleModalEl.dataset.resetBound = 'true'; // ป้องกันการผูก Event ซ้ำ
   }
 }
 
@@ -322,7 +338,7 @@ async function handleSalesSubmit(e) {
         Swal.fire({
           icon: 'success',
           title: 'บันทึกสำเร็จ!',
-          text: 'ข้อมูลรายการขายถูกบันทึกลงระบบเรียบร้อยแล้ว',
+          text: `บันทึกข้อมูลรายการขายเลขที่ ${res.saleNo || payload.saleNo} เรียบร้อยแล้ว`,
           confirmButtonText: 'ตกลง',
           confirmButtonColor: '#005f73'
         });
