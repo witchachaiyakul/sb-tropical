@@ -140,6 +140,7 @@ function renderOilStockCards(s95, sDiesel, dateVal) {
   setTxt('stock95In', fmtNum(s95.totalIn));
   setTxt('stock95Out', fmtNum(s95.totalOut));
   setTxt('stock95Current', fmtNum(s95.currentStock) + ' ลิตร');
+  setTxt('stock95TotalSales', fmtNum(s95.totalSales) + ' บาท');
   setTxt('stock95CashSales', fmtNum(s95.cashSales) + ' บาท');
   setTxt('badge95Stock', 'คงเหลือ ณ สิ้นวัน ' + fmtNum(s95.currentStock) + ' ลิตร');
 
@@ -148,6 +149,7 @@ function renderOilStockCards(s95, sDiesel, dateVal) {
   setTxt('stockDieselIn', fmtNum(sDiesel.totalIn));
   setTxt('stockDieselOut', fmtNum(sDiesel.totalOut));
   setTxt('stockDieselCurrent', fmtNum(sDiesel.currentStock) + ' ลิตร');
+  setTxt('stockDieselTotalSales', fmtNum(sDiesel.totalSales) + ' บาท');
   setTxt('stockDieselCashSales', fmtNum(sDiesel.cashSales) + ' บาท');
   setTxt('badgeDieselStock', 'คงเหลือ ณ สิ้นวัน ' + fmtNum(sDiesel.currentStock) + ' ลิตร');
 }

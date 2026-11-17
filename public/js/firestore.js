@@ -481,7 +481,7 @@ async function getOilStockData(targetDate) {
       }
 
       // 1.2 ดึงยอดนำเข้า และ ยอดขายออก ของวันที่กรองข้อมูล
-      let dayIn = 0, dayOut = 0, dayCashSales = 0;
+      let dayIn = 0, dayOut = 0, dayCashSales = 0, dayTotalSales = 0; // 👈 ประกาศตัวแปร dayTotalSales
 
       const dayInSnap = await db.collection('oil_stock').doc(fuelType).collection('imports_daily_summaries').doc(docIdDate).get();
       if (dayInSnap.exists) {
@@ -493,6 +493,7 @@ async function getOilStockData(targetDate) {
         const dData = dayOutSnap.data();
         dayOut = Number(dData.totalOut || 0);
         dayCashSales = Number(dData.cashSales || 0);
+        dayTotalSales = Number(dData.totalSales || 0); // 👈 ดึงยอดขายรายวันจาก Firestore
       }
 
       // 1.3 คำนวณยอดนำเข้าสะสม (Cumulative In) ถึงวันที่เลือก
@@ -539,6 +540,7 @@ async function getOilStockData(targetDate) {
         totalIn: dayIn,
         totalOut: dayOut,
         cashSales: dayCashSales,
+        totalSales: dayTotalSales,
         currentStock: currentStock
       };
     }
@@ -551,15 +553,13 @@ async function getOilStockData(targetDate) {
       stock95: stock95Result,
       stockDiesel: stockDieselResult
     };
-
   } catch (err) {
     console.error("❌ Error in getOilStockData:", err);
     return { success: false, message: err.message };
   }
 }
 
-// 2. อัปเดต Sub-collections ยอดขายออก (daily_summaries & monthly_summaries)
-async function updateSaleSummaries(fuelType, rawDate, liters, cashValue, oldLiters, oldCashValue, isUpdate) {
+async function updateSaleSummaries(fuelType, rawDate, liters, cashValue, totalAmount, oldLiters, oldCashValue, oldTotalAmount, isUpdate) {
   try {
     const stdDate = toStandardYYYYMMDD(rawDate);
     if (!stdDate) return;
@@ -575,15 +575,17 @@ async function updateSaleSummaries(fuelType, rawDate, liters, cashValue, oldLite
 
     const deltaLiters = isUpdate ? (liters - oldLiters) : liters;
     const deltaCash = isUpdate ? (cashValue - oldCashValue) : cashValue;
+    const deltaSales = isUpdate ? (totalAmount - oldTotalAmount) : totalAmount;
 
     // Daily Summary
     const dailyRef = db.collection('oil_stock').doc(fuelType).collection('daily_summaries').doc(dailyDocId);
     const dailySnap = await dailyRef.get();
-    let curDailyOut = 0, curDailyCash = 0, curDailyCount = 0;
+    let curDailyOut = 0, curDailyCash = 0, curDailySales = 0, curDailyCount = 0;
     if (dailySnap.exists) {
       const df = dailySnap.data();
       curDailyOut = Number(df.totalOut || 0);
       curDailyCash = Number(df.cashSales || 0);
+      curDailySales = Number(df.totalSales || 0);
       curDailyCount = Number(df.recordCount || 0);
     }
     await dailyRef.set({
@@ -591,6 +593,7 @@ async function updateSaleSummaries(fuelType, rawDate, liters, cashValue, oldLite
       fuelType: fuelType,
       totalOut: Math.max(0, curDailyOut + deltaLiters),
       cashSales: Math.max(0, curDailyCash + deltaCash),
+      totalSales: Math.max(0, curDailySales + deltaSales),
       recordCount: isUpdate ? curDailyCount : (curDailyCount + 1),
       lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
@@ -598,11 +601,12 @@ async function updateSaleSummaries(fuelType, rawDate, liters, cashValue, oldLite
     // Monthly Summary
     const monthlyRef = db.collection('oil_stock').doc(fuelType).collection('monthly_summaries').doc(monthlyDocId);
     const monthlySnap = await monthlyRef.get();
-    let curMonthlyOut = 0, curMonthlyCash = 0, curMonthlyCount = 0;
+    let curMonthlyOut = 0, curMonthlyCash = 0, curMonthlySales = 0, curMonthlyCount = 0;
     if (monthlySnap.exists) {
       const mf = monthlySnap.data();
       curMonthlyOut = Number(mf.totalOut || 0);
       curMonthlyCash = Number(mf.cashSales || 0);
+      curMonthlySales = Number(mf.totalSales || 0);
       curMonthlyCount = Number(mf.recordCount || 0);
     }
     await monthlyRef.set({
@@ -610,10 +614,10 @@ async function updateSaleSummaries(fuelType, rawDate, liters, cashValue, oldLite
       fuelType: fuelType,
       totalOut: Math.max(0, curMonthlyOut + deltaLiters),
       cashSales: Math.max(0, curMonthlyCash + deltaCash),
+      totalSales: Math.max(0, curMonthlySales + deltaSales),
       recordCount: isUpdate ? curMonthlyCount : (curMonthlyCount + 1),
       lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
-
   } catch (err) {
     console.error("❌ Error in updateSaleSummaries:", err);
   }
@@ -636,29 +640,30 @@ async function updateStockOnFuelSale(saleRecord, isUpdate) {
     const paymentType = String(saleRecord.paymentType || 'เงินสด').trim();
 
     const isCash = paymentType.includes('เงินสด');
+    const totalAmount = Number(saleRecord.totalAmount || 0);
     const cashValue = isCash ? Number(saleRecord.totalAmount || 0) : 0;
 
     const exportDocRef = db.collection('oil_stock').doc(docId).collection('exports').doc(cleanSaleNo);
-    let oldLiters = 0, oldCashValue = 0;
-
-    if (isUpdate) {
-      const oldSnap = await exportDocRef.get();
-      if (oldSnap.exists) {
-        oldLiters = Number(oldSnap.data().liters || 0);
-        oldCashValue = Number(oldSnap.data().cash || 0);
-      }
-    }
-
+let oldLiters = 0, oldCashValue = 0, oldTotalAmount = 0;
+if (isUpdate) {
+  const oldSnap = await exportDocRef.get();
+  if (oldSnap.exists) {
+    oldLiters = Number(oldSnap.data().liters || 0);
+    oldCashValue = Number(oldSnap.data().cash || 0);
+    oldTotalAmount = Number(oldSnap.data().amount || oldSnap.data().cash || 0);
+  }
+}
     await exportDocRef.set({
       saleNo: rawSaleNo,
       date: recDate,
       liters: liters,
       paymentType: paymentType,
       cash: cashValue,
+      amount: totalAmount,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
-    await updateSaleSummaries(docId, recDate, liters, cashValue, oldLiters, oldCashValue, isUpdate);
+    await updateSaleSummaries(docId, recDate, liters, cashValue, totalAmount, oldLiters, oldCashValue, oldTotalAmount, isUpdate);
     await updateOilStockParentSummary(docId);
 
     return { success: true };
@@ -683,13 +688,14 @@ async function reverseStockOnFuelSale(saleRecord) {
     const oldData = oldSnap.data();
     const oldLiters = Number(oldData.liters || 0);
     const oldCashValue = Number(oldData.cash || 0);
+    const oldTotalAmount = Number(oldData.amount || oldData.cash || 0);
     const recDate = oldData.date || saleRecord.date;
 
     // ลบออกจาก exports
     await exportDocRef.delete();
 
     // ปรับลดใน summaries (ใส่ delta เป็นค่าลบ)
-    await updateSaleSummaries(docId, recDate, 0, 0, oldLiters, oldCashValue, true);
+    await updateSaleSummaries(docId, recDate, 0, 0, 0, oldLiters, oldCashValue, oldTotalAmount, true);
     await updateOilStockParentSummary(docId);
   } catch (err) {
     console.error("❌ Error in reverseStockOnFuelSale:", err);
