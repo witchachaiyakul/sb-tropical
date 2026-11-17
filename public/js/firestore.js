@@ -1018,26 +1018,79 @@ async function getBuyerByName(buyerName) {
   }
 }
 
-// 🟢 3. รันเลขที่ใบวางบิลถัดไป (เช่น SBBS-0001)
-async function getNextBillNo() {
-  try {
-    const now = new Date();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const yearBE = String(now.getFullYear() + 543).slice(-2);
-    const prefix = `SBBS${month}${yearBE}`;
+// ตัวช่วยแปลงวันที่ใบวางบิลเป็นรหัสงวด {mmyyyy} และ Prefix (เช่น SBBS1169)
+function parseBillPeriod(dateStr) {
+  let dateObj = new Date();
+  if (dateStr) {
+    const parts = String(dateStr).trim().split(/[\/\-]/);
+    if (parts.length === 3) {
+      let p0 = parseInt(parts[0], 10);
+      let p1 = parseInt(parts[1], 10);
+      let p2 = parseInt(parts[2], 10);
+      let y, m, d;
+      if (parts[0].length === 4) { // YYYY/MM/DD
+        y = p0 > 2400 ? p0 - 543 : p0;
+        m = p1 - 1;
+        d = p2;
+      } else { // DD/MM/YYYY
+        d = p0;
+        m = p1 - 1;
+        y = p2 > 2400 ? p2 - 543 : p2;
+      }
+      dateObj = new Date(y, m, d);
+    }
+  }
+  if (isNaN(dateObj.getTime())) dateObj = new Date();
 
-    const trackerDoc = await db.collection('bill_no').doc('current').get();
-    let lastPrefix = "", lastNumber = 0;
+  const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(dateObj.getFullYear());
+  const yyBE = String(dateObj.getFullYear() + 543).slice(-2);
+
+  return {
+    docIdMMYYYY: `${mm}${yyyy}`, // เช่น "112026"
+    prefix: `SBBS${mm}${yyBE}`     // เช่น "SBBS1169"
+  };
+}
+
+// 🟢 3. รันเลขที่ใบวางบิลถัดไปแยกตามเดือน (Doc: 'bill_no/{mmyyyy}') รองรับย้อนหลังข้ามเดือน
+async function getNextBillNo(dateStr) {
+  try {
+    const target = parseBillPeriod(dateStr);
+    const trackerDoc = await db.collection('bill_no').doc(target.docIdMMYYYY).get();
+
+    let lastNumber = 0;
+
     if (trackerDoc.exists) {
-      const data = trackerDoc.data();
-      lastPrefix = data.last_prefix || "";
-      lastNumber = Number(data.last_number || 0);
+      // กรณีมีตัวนับของเดือนนี้อยู่แล้ว -> อ่านแค่ 1 Doc
+      lastNumber = Number(trackerDoc.data().last_number || 0);
+    } else {
+      // กรณียังไม่มีตัวนับของเดือนนี้ -> สแกนหาเลขสูงสุดที่มีอยู่จริงใน billing_notes ของเดือนนั้นมาตั้งต้นอัตโนมัติ
+      const snapshot = await db.collection('billing_notes')
+        .where('billNo', '>=', target.prefix + '-')
+        .where('billNo', '<=', target.prefix + '-\uf8ff')
+        .get();
+
+      snapshot.forEach(doc => {
+        const bNo = String(doc.data().billNo || '');
+        const numPart = parseInt(bNo.replace(target.prefix + '-', ''), 10);
+        if (!isNaN(numPart) && numPart > lastNumber) {
+          lastNumber = numPart;
+        }
+      });
     }
 
-    const nextNumber = (lastPrefix === prefix) ? lastNumber + 1 : 1;
-    const billNo = `${prefix}-${String(nextNumber).padStart(4, '0')}`;
-    return { success: true, billNo: billNo, prefix: prefix, number: nextNumber };
+    const nextNumber = lastNumber + 1;
+    const billNo = `${target.prefix}-${String(nextNumber).padStart(4, '0')}`;
+
+    return {
+      success: true,
+      billNo: billNo,
+      prefix: target.prefix,
+      number: nextNumber,
+      trackerDocId: target.docIdMMYYYY
+    };
   } catch (err) {
+    console.error("❌ Error in getNextBillNo:", err);
     return { success: false, message: err.message, billNo: 'SBBS-0001' };
   }
 }
@@ -1049,48 +1102,83 @@ async function confirmBilling(saleIds, billDateStr, billingData) {
       return { success: false, message: 'กรุณาเลือกอย่างน้อย 1 รายการ' };
     }
 
-    const billNoInfo = await getNextBillNo();
-    const billNo = billNoInfo.billNo;
-
-    const payload = {
-      billNo: billNo,
-      billDate: billDateStr,
-      buyerName: billingData.buyerName || '-',
-      buyerTaxId: billingData.buyerTaxId || '-',
-      buyerAddress: billingData.buyerAddress || '-',
-      buyerRemark: billingData.buyerRemark || '-',
-      subtotal: Number(billingData.subtotal || 0),
-      vatAmount: Number(billingData.vatAmount || 0),
-      grandTotal: Number(billingData.grandTotal || 0),
-      saleIds: saleIds,
-      saleNos: billingData.saleNos || [],
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
-
-    // บันทึกลง billing_notes
-    await db.collection('billing_notes').doc(billNo.replace(/\//g, "-")).set(payload);
-
-    // อัปเดตตัวรันเลข bill_no
-    if (billNoInfo.prefix && billNoInfo.number) {
-      await db.collection('bill_no').doc('current').set({
-        last_prefix: billNoInfo.prefix,
-        last_number: billNoInfo.number
-      }, { merge: true });
+    const targetPeriod = parseBillPeriod(billDateStr);
+    const nextInfo = await getNextBillNo(billDateStr);
+    if (!nextInfo || !nextInfo.success) {
+      return { success: false, message: 'ไม่สามารถสร้างเลขที่ใบวางบิลได้' };
     }
+    const initialLastNumber = nextInfo.number - 1;
 
-    // อัปเดตรายการขายใน sales_records ว่าถูกวางบิลแล้ว
+    const trackerRef = db.collection('bill_no').doc(targetPeriod.docIdMMYYYY);
+    let finalBillNo = '';
+
+    // 🔒 1. ใช้ Transaction จองเลขใบวางบิลของเดือนนั้น + บันทึกใบวางบิลพร้อมกัน (กันชนซ้ำ 100%)
+    await db.runTransaction(async (transaction) => {
+      const trackerDoc = await transaction.get(trackerRef);
+      let currentNum = initialLastNumber;
+      if (trackerDoc.exists) {
+        currentNum = Number(trackerDoc.data().last_number || 0);
+      }
+
+      let candidateNum = currentNum + 1;
+      let candidateBillNo = '';
+      let candidateDocId = '';
+      let billRef = null;
+
+      // วนเช็กใน billing_notes เพื่อให้แน่ใจว่าเลขนี้ยังไม่ถูกใช้จริง
+      while (true) {
+        candidateBillNo = `${targetPeriod.prefix}-${String(candidateNum).padStart(4, '0')}`;
+        candidateDocId = candidateBillNo.replace(/\//g, "-");
+        billRef = db.collection('billing_notes').doc(candidateDocId);
+
+        const existingBill = await transaction.get(billRef);
+        if (!existingBill.exists) {
+          break;
+        }
+        candidateNum++;
+      }
+
+      const payload = {
+        billNo: candidateBillNo,
+        billDate: billDateStr,
+        buyerName: billingData.buyerName || '-',
+        buyerTaxId: billingData.buyerTaxId || '-',
+        buyerAddress: billingData.buyerAddress || '-',
+        buyerRemark: billingData.buyerRemark || '-',
+        subtotal: Number(billingData.subtotal || 0),
+        vatAmount: Number(billingData.vatAmount || 0),
+        grandTotal: Number(billingData.grandTotal || 0),
+        saleIds: saleIds,
+        saleNos: billingData.saleNos || [],
+        saleNosSummary: (billingData.saleNos || []).join(', '),
+        status: 'ISSUED',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
+
+      transaction.set(billRef, payload);
+      transaction.set(trackerRef, {
+        last_prefix: targetPeriod.prefix,
+        last_number: candidateNum,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      finalBillNo = candidateBillNo;
+    });
+
+    // 🔄 2. อัปเดตรายการขายใน sales_records ว่าถูกวางบิลแล้ว
     const batch = db.batch();
     saleIds.forEach(id => {
       const ref = db.collection('sales_records').doc(String(id));
       batch.update(ref, {
         isBilled: true,
-        billNo: billNo,
+        billNo: finalBillNo,
+        billDate: billDateStr,
         billedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
     });
     await batch.commit();
 
-    return { success: true, billNo: billNo, message: 'ออกใบวางบิลสำเร็จ' };
+    return { success: true, billNo: finalBillNo, message: 'ออกใบวางบิลสำเร็จ' };
   } catch (err) {
     console.error("❌ Error in confirmBilling:", err);
     return { success: false, message: err.message };

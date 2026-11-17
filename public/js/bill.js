@@ -298,7 +298,8 @@ async function previewBillingNote() {
   const todayBE = getTodayBE();
 
   try {
-    const nextBillRes = await getNextBillNo();
+    // ✅ ส่ง todayBE เข้าไปเพื่อให้ดึงตัวนับของเดือนตรงกับวันที่เอกสาร
+    const nextBillRes = await getNextBillNo(todayBE);
     const realBillNo = (nextBillRes && nextBillRes.success) ? nextBillRes.billNo : 'SBBS-0001';
 
     const buyerRes = await getBuyerByName(firstBuyer);
@@ -352,7 +353,8 @@ async function previewBillingNote() {
     document.getElementById('prevBillVat').innerText = vatAmount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     document.getElementById('prevBillGrandTotal').innerText = grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    const previewModal = new bootstrap.Modal(document.getElementById('billingPreviewModal'));
+    // ✅ ใช้ getOrCreateInstance ป้องกันฉากหลัง Modal ซ้อนกันเมื่อกดเปิดหลายครั้ง
+    const previewModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('billingPreviewModal'));
     previewModal.show();
   } catch (err) {
     Swal.close();
@@ -418,6 +420,8 @@ async function confirmAndIssueBilling() {
     const res = await confirmBilling(saleIds, billDateStr, billingData);
 
     if (res && res.success) {
+      const prevBillNoEl = document.getElementById('prevBillNo');
+      if (prevBillNoEl) prevBillNoEl.innerText = res.billNo;
       if (modalInstance) modalInstance.hide();
 
       // 2. เรียกฟังก์ชันสั่งสร้าง PDF ไปยัง GAS Generator Service
@@ -462,7 +466,6 @@ async function printBillingNoteDocument(billNo, billDateStr, billingData) {
   };
 
   try {
-    // 📌 ส่ง POST Request ไปยัง GAS Web App (ใช้ text/plain เพื่อเลี่ยงการติด CORS Preflight)
     const response = await fetch(GAS_PDF_SERVICE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -492,10 +495,22 @@ async function printBillingNoteDocument(billNo, billDateStr, billingData) {
         resetBillingForm();
       });
     } else {
-      Swal.fire('เกิดข้อผิดพลาด', res ? res.message : 'ไม่สามารถสร้างไฟล์ PDF ได้', 'error');
+      Swal.fire({
+        title: 'บันทึกใบวางบิลสำเร็จ (PDF ขัดข้อง)',
+        text: `บันทึกใบวางบิลเลขที่ ${billNo} ลงฐานข้อมูลแล้ว แต่สร้างไฟล์ PDF ไม่สำเร็จ: ${res ? res.message : 'ไม่ทราบสาเหตุ'}`,
+        icon: 'warning'
+      }).then(() => {
+        resetBillingForm();
+      });
     }
   } catch (err) {
-    Swal.fire('เกิดข้อผิดพลาดจาก PDF Service', err.toString(), 'error');
+    Swal.fire({
+      title: 'บันทึกใบวางบิลสำเร็จ (PDF ขัดข้อง)',
+      text: `บันทึกใบวางบิลเลขที่ ${billNo} ลงฐานข้อมูลแล้ว แต่ไม่สามารถเชื่อมต่อบริการสร้าง PDF ได้ (${err.toString()})`,
+      icon: 'warning'
+    }).then(() => {
+      resetBillingForm();
+    });
   }
 }
 
