@@ -234,9 +234,17 @@ function calculateTotal() {
 }
 
 async function updateSaleNoPreview() {
-  // ✅ ป้องกันไม่ให้รันเลขที่เอกสารใหม่มาทับเลขเดิม หากกำลังอยู่ในโหมดแก้ไข
   const editDocId = document.getElementById('editDocId')?.value;
-  if (editDocId) return;
+  if (editDocId) {
+    // 📝 เก็บ Log กรณีฟังก์ชันนี้ถูกเรียกขณะอยู่ในโหมดแก้ไข (เพื่อดูว่าอะไรเป็นตัวเรียก)
+    if (typeof writeSystemLog === 'function') {
+      writeSystemLog('PREVIEW_BLOCKED_IN_EDIT', 'sale-record.js', 'updateSaleNoPreview', {
+        editDocId: editDocId,
+        currentSaleNoInput: document.getElementById('saleNo')?.value || ''
+      });
+    }
+    return;
+  }
 
   const dateEl = document.getElementById('saleDate');
   const rawDate = dateEl ? dateEl.value : '';
@@ -250,6 +258,9 @@ async function updateSaleNoPreview() {
     }
   } catch (err) {
     console.error("Error updating SaleNo preview:", err);
+    if (typeof writeSystemLog === 'function') {
+      writeSystemLog('ERROR_PREVIEW_SALENO', 'sale-record.js', 'updateSaleNoPreview', { dateForDB, error: err.message }, true);
+    }
   }
 }
 
@@ -328,12 +339,23 @@ async function handleSalesSubmit(e) {
     recordedBy: window.currentUser ? window.currentUser.username : 'system'
   };
 
+  // 📝 เก็บ Log ค่าที่กำลังจะถูกส่งไปบันทึก (เช็กว่า docId กับ saleNo ตรงกันไหมก่อนเข้า DB)
+  if (typeof writeSystemLog === 'function') {
+    writeSystemLog(payload.docId ? 'SUBMIT_EDIT_FORM' : 'SUBMIT_NEW_FORM', 'sale-record.js', 'handleSalesSubmit', {
+      docId: payload.docId,
+      saleNo: payload.saleNo,
+      date: payload.date,
+      buyerName: payload.buyerName,
+      totalAmount: payload.totalAmount
+    });
+  }
+
   if (typeof Swal !== 'undefined') Swal.fire({ title: 'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
   try {
     const res = await saveSaleRecord(payload);
     if (res.success) {
-      closeSaleModal(); // ซ่อน Modal เมื่อบันทึกสำเร็จ
+      closeSaleModal();
       if (typeof Swal !== 'undefined') {
         Swal.fire({
           icon: 'success',
@@ -346,9 +368,15 @@ async function handleSalesSubmit(e) {
       resetForm();
       await loadSalesData();
     } else {
+      if (typeof writeSystemLog === 'function') {
+        writeSystemLog('SUBMIT_FAILED', 'sale-record.js', 'handleSalesSubmit', { payload, message: res.message }, true);
+      }
       if (typeof Swal !== 'undefined') Swal.fire('ข้อผิดพลาด', res.message, 'error');
     }
   } catch (err) {
+    if (typeof writeSystemLog === 'function') {
+      writeSystemLog('SUBMIT_EXCEPTION', 'sale-record.js', 'handleSalesSubmit', { payload, error: err.message || err.toString() }, true);
+    }
     if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาดจากระบบ', err.message || err.toString(), 'error');
   }
 }
@@ -517,8 +545,20 @@ function editRecord(id) {
   const item = rawSalesData.find(x => x.id === id);
   if (!item) return;
 
+  const correctedSaleNo = (item.id && String(item.id).startsWith('SB')) ? item.id : (item.saleNo || '');
+
+  // 📝 เก็บ Log ตอนกดเปิดแก้ไข เพื่อดูว่าค่าใน DB ก่อนแก้เป็นอะไร
+  if (typeof writeSystemLog === 'function') {
+    writeSystemLog('OPEN_EDIT_MODAL', 'sale-record.js', 'editRecord', {
+      docId: item.id,
+      dbSaleNo: item.saleNo || '',
+      appliedSaleNo: correctedSaleNo,
+      date: item.date || ''
+    });
+  }
+
   document.getElementById('editDocId').value = item.id;
-  document.getElementById('saleNo').value = item.saleNo || '';
+  document.getElementById('saleNo').value = correctedSaleNo;
 
   if (item.date) {
     let parts = String(item.date).trim().split(/[\/\-]/);
@@ -535,7 +575,6 @@ function editRecord(id) {
       }
       if (y > 2400) y -= 543;
       if (typeof fp !== 'undefined' && fp) {
-        // ✅ เปลี่ยนจาก true เป็น false เพื่อไม่ให้กระตุ้น onChange ตอนโหลดข้อมูลเดิม
         fp.setDate(new Date(y, m, d), false);
       } else {
         document.getElementById('saleDate').value = `${String(d).padStart(2, '0')}/${String(m + 1).padStart(2, '0')}/${y + 543}`;
@@ -584,13 +623,12 @@ function editRecord(id) {
     document.getElementById('btnSaveRecord').innerHTML = `<i class="bi bi-pencil-square me-1"></i> อัปเดตข้อมูลการขาย`;
   }
 
-  // เปิด Modal แก้ไข
   const modalEl = document.getElementById('saleModal');
   if (modalEl) {
     if (!saleModalInstance) {
       saleModalInstance = new bootstrap.Modal(modalEl);
     }
-    document.getElementById('saleModalLabel').innerHTML = `<i class="bi bi-pencil-square me-2"></i>แก้ไขรายการขาย (${item.saleNo})`;
+    document.getElementById('saleModalLabel').innerHTML = `<i class="bi bi-pencil-square me-2"></i>แก้ไขรายการขาย (${correctedSaleNo})`;
     saleModalInstance.show();
   }
 }

@@ -151,11 +151,8 @@ async function getNextSaleNo(dateStr) {
     let lastNumber = 0;
 
     if (trackerDoc.exists) {
-      // กรณีมีตัวนับของเดือนนี้อยู่แล้ว -> อ่านแค่ 1 Doc (ประหยัด Read สูงสุด)
       lastNumber = Number(trackerDoc.data().last_number || 0);
     } else {
-      // กรณียังไม่มีตัวนับของเดือนนี้ (เช่น ย้อนไปคีย์เดือนเก่าก่อนอัปเดตระบบ)
-      // ค้นหาเลขสูงสุดที่มีอยู่จริงใน sales_records ของเดือนนั้นเพียงครั้งเดียวเพื่อตั้งต้นให้ถูกต้อง
       const snapshot = await db.collection('sales_records')
         .where('saleNo', '>=', target.prefix + '-')
         .where('saleNo', '<=', target.prefix + '-\uf8ff')
@@ -183,6 +180,7 @@ async function getNextSaleNo(dateStr) {
     };
   } catch (err) {
     console.error("❌ Error in getNextSaleNo:", err);
+    writeSystemLog('ERROR_NEXT_SALE_NO', 'firestore.js', 'getNextSaleNo', { dateStr, error: err.message }, true);
     return { success: false, message: err.message };
   }
 }
@@ -227,7 +225,6 @@ async function saveSaleRecord(data) {
     const formattedDate = String(data.date || '').replace(/-/g, '/').trim();
     const targetPeriod = parseSalePeriod(formattedDate);
 
-    // หาเลขตั้งต้นของเดือนนั้น (รองรับการย้อนหลังข้ามเดือน)
     let initialLastNumber = 0;
     if (!isUpdate) {
       const nextInfo = await getNextSaleNo(formattedDate);
@@ -259,7 +256,6 @@ async function saveSaleRecord(data) {
     let finalSaleNo = data.saleNo || '';
     let finalDocId = isUpdate ? data.docId : '';
 
-    // 🔒 ใช้ Transaction จองเลขบิลของเดือนนั้น + บันทึกข้อมูลพร้อมกัน
     if (!isUpdate) {
       const trackerRef = db.collection('sales_no').doc(targetPeriod.docIdMMYYYY);
 
@@ -275,7 +271,6 @@ async function saveSaleRecord(data) {
         let candidateDocId = '';
         let saleRef = null;
 
-        // วนหาเลขถัดไปที่ยังไม่ถูกใช้จริงใน sales_records
         while (true) {
           candidateSaleNo = `${targetPeriod.prefix}-${String(candidateNum).padStart(4, '0')}`;
           candidateDocId = candidateSaleNo.replace(/\//g, "-");
@@ -306,25 +301,48 @@ async function saveSaleRecord(data) {
         finalSaleNo = candidateSaleNo;
         finalDocId = candidateDocId;
       });
+
+      // 📝 บันทึก Log การสร้างรายการใหม่สำเร็จ
+      writeSystemLog('CREATE_SALE_SUCCESS', 'firestore.js', 'saveSaleRecord', {
+        docId: finalDocId,
+        saleNo: finalSaleNo,
+        date: formattedDate,
+        buyerName: basePayload.buyerName,
+        totalAmount: basePayload.totalAmount
+      });
     } else {
       if (!finalDocId) {
         return { success: false, message: 'รหัสเอกสาร (docId) ไม่ถูกต้อง' };
       }
+      const lockedSaleNo = String(finalDocId).startsWith('SB') ? finalDocId : finalSaleNo;
       const updatePayload = {
         ...basePayload,
-        saleNo: finalSaleNo
+        saleNo: lockedSaleNo
       };
-      await db.collection('sales_records').doc(finalDocId).set(updatePayload, { merge: true });
+
+      await db.collection('sales_records').doc(finalDocId).update(updatePayload);
+      finalSaleNo = lockedSaleNo;
+
+      // 📝 บันทึก Log การอัปเดตสำเร็จ (เช็กว่า saleNo ที่ส่งมากับที่ล็อกตรงกันไหม)
+      writeSystemLog('UPDATE_SALE_SUCCESS', 'firestore.js', 'saveSaleRecord', {
+        docId: finalDocId,
+        incomingSaleNo: data.saleNo || '',
+        savedSaleNo: finalSaleNo,
+        date: formattedDate,
+        buyerName: basePayload.buyerName,
+        totalAmount: basePayload.totalAmount
+      });
     }
 
-    // ⛽ ตัดสต็อกน้ำมันอัตโนมัติ (ระบบจะตัดยอดตามวันที่ย้อนหลังของบิลให้อัตโนมัติ)
-    const finalPayload = { ...basePayload, saleNo: finalSaleNo };
+    // ⛽ ตัดสต็อกน้ำมันอัตโนมัติ
+    const finalPayload = { ...basePayload, docId: finalDocId, saleNo: finalSaleNo };
     const isFuelSale = (finalPayload.itemType === 'น้ำมัน' || (typeof getFuelDocId === 'function' && getFuelDocId(finalPayload.itemName))) && finalPayload.liters > 0;
     if (isFuelSale && typeof updateStockOnFuelSale === 'function') {
       try {
         await updateStockOnFuelSale(finalPayload, isUpdate);
       } catch (stockErr) {
         console.warn("⚠️ บันทึกรายการขายสำเร็จ แต่ตัดสต็อกน้ำมันผิดพลาด:", stockErr);
+        writeSystemLog('ERROR_STOCK_UPDATE', 'firestore.js', 'saveSaleRecord', { docId: finalDocId, error: stockErr.message }, true);
       }
     }
 
@@ -340,12 +358,18 @@ async function saveSaleRecord(data) {
         );
       } catch (buyerErr) {
         console.warn("⚠️ บันทึกรายการขายสำเร็จ แต่อัปเดตยอดสะสมลูกค้าผิดพลาด:", buyerErr);
+        writeSystemLog('ERROR_BUYER_SUMMARY', 'firestore.js', 'saveSaleRecord', { docId: finalDocId, error: buyerErr.message }, true);
       }
     }
 
     return { success: true, message: 'บันทึกสำเร็จ', saleNo: finalSaleNo, docId: finalDocId };
   } catch (err) {
     console.error("❌ Error in saveSaleRecord:", err);
+    writeSystemLog('ERROR_SAVE_SALE', 'firestore.js', 'saveSaleRecord', {
+      docId: data?.docId || '',
+      saleNo: data?.saleNo || '',
+      error: err.message
+    }, true);
     return { success: false, message: err.message };
   }
 }
@@ -402,10 +426,19 @@ async function deleteSaleRecord(docId) {
 
     const saleData = docSnap.data();
 
-    // ลบเอกสารรายการขายหลัก
     await docRef.delete();
 
-    // ⛽ คืนสต็อกน้ำมันย้อนกลับ
+    // 📝 บันทึก Log การลบข้อมูล (เก็บข้อมูลเดิมไว้ใน Log เผื่อตรวจสอบย้อนหลัง)
+    writeSystemLog('DELETE_SALE_SUCCESS', 'firestore.js', 'deleteSaleRecord', {
+      docId: docId,
+      deletedData: {
+        saleNo: saleData.saleNo || '',
+        date: saleData.date || '',
+        buyerName: saleData.buyerName || '',
+        totalAmount: saleData.totalAmount || 0
+      }
+    });
+
     const fuelDocId = getFuelDocId(saleData.itemName || saleData.itemType);
     const liters = Number(saleData.liters || saleData.qty || 0);
     if (fuelDocId && liters > 0) {
@@ -414,6 +447,7 @@ async function deleteSaleRecord(docId) {
 
     return { success: true, message: 'ลบรายการและปรับปรุงสต็อกเรียบร้อย' };
   } catch (err) {
+    writeSystemLog('ERROR_DELETE_SALE', 'firestore.js', 'deleteSaleRecord', { docId, error: err.message }, true);
     return { success: false, message: err.message };
   }
 }
@@ -713,7 +747,8 @@ async function updateStockOnFuelSale(saleRecord, isUpdate) {
     const liters = Number(saleRecord.liters || saleRecord.qty || 0);
     if (liters <= 0) return { success: false, message: "จำนวนลิตรไม่ถูกต้อง" };
 
-    const rawSaleNo = String(saleRecord.saleNo || '').trim();
+    // ✅ ยึด docId หรือ saleNo ที่ถูกล็อกแล้วเป็นหลัก ป้องกันการตัดสต็อกซ้ำหรือทับบิลอื่น
+    const rawSaleNo = String(saleRecord.docId || saleRecord.saleNo || '').trim();
     const cleanSaleNo = safeDocId(rawSaleNo);
     const recDate = toStandardYYYYMMDD(saleRecord.date);
     const paymentType = String(saleRecord.paymentType || 'เงินสด').trim();
@@ -723,15 +758,16 @@ async function updateStockOnFuelSale(saleRecord, isUpdate) {
     const cashValue = isCash ? Number(saleRecord.totalAmount || 0) : 0;
 
     const exportDocRef = db.collection('oil_stock').doc(docId).collection('exports').doc(cleanSaleNo);
-let oldLiters = 0, oldCashValue = 0, oldTotalAmount = 0;
-if (isUpdate) {
-  const oldSnap = await exportDocRef.get();
-  if (oldSnap.exists) {
-    oldLiters = Number(oldSnap.data().liters || 0);
-    oldCashValue = Number(oldSnap.data().cash || 0);
-    oldTotalAmount = Number(oldSnap.data().amount || oldSnap.data().cash || 0);
-  }
-}
+    let oldLiters = 0, oldCashValue = 0, oldTotalAmount = 0;
+    if (isUpdate) {
+      const oldSnap = await exportDocRef.get();
+      if (oldSnap.exists) {
+        oldLiters = Number(oldSnap.data().liters || 0);
+        oldCashValue = Number(oldSnap.data().cash || 0);
+        oldTotalAmount = Number(oldSnap.data().amount || oldSnap.data().cash || 0);
+      }
+    }
+
     await exportDocRef.set({
       saleNo: rawSaleNo,
       date: recDate,
@@ -2588,5 +2624,23 @@ async function getExpenseRecordsByDateRangeFromFirestore(startDateStr, endDateSt
   } catch (err) {
     console.error("❌ Error in getExpenseRecordsByDateRangeFromFirestore:", err);
     return { success: false, message: err.message };
+  }
+}
+
+// ==================== SYSTEM AUDIT LOG (Collection: 'log') ====================
+async function writeSystemLog(action, sourceFile, functionName, details = {}, isError = false) {
+  try {
+    if (typeof db === 'undefined' || !db) return;
+    await db.collection('log').add({
+      action: action,                 // เช่น 'EDIT_OPEN', 'SUBMIT_START', 'DB_UPDATE', 'ERROR'
+      sourceFile: sourceFile,         // 'sale-record.js' หรือ 'firestore.js'
+      functionName: functionName,     // ชื่อฟังก์ชัน
+      isError: isError,               // true ถ้าเกิด Error
+      user: window.currentUser ? window.currentUser.username : 'system',
+      details: details,               // ข้อมูลละเอียด (docId, saleNo, payload, error)
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (logErr) {
+    console.warn("⚠️ ไม่สามารถบันทึก Log ลง Firestore ได้:", logErr);
   }
 }
