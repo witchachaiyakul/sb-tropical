@@ -453,6 +453,7 @@ async function printBillingNoteDocument(billNo, billDateStr, billingData) {
   }));
 
   const payload = {
+    action: 'generatePdfFromSlideTemplate',
     billNo: billNo,
     billDate: billDateStr,
     buyerName: billingData.buyerName,
