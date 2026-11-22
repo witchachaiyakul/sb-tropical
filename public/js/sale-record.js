@@ -5,6 +5,7 @@ let rawSalesData = [];
 let dataTableInstance = null;
 let saleModalInstance = null;
 let addBuyerModalInstance = null;
+let isSubmittingSale = false; // 🔒 ตัวแปรล็อกป้องกันการกดบันทึกซ้ำซ้อน
 
 document.addEventListener('DOMContentLoaded', function () {
   initFlatpickr();
@@ -153,6 +154,19 @@ async function handleSaveBuyer(e) {
     if (typeof Swal !== 'undefined') Swal.close();
 
     if (res.success) {
+      // 📝 บันทึก Log เพิ่มรายชื่อผู้ซื้อ
+      if (typeof writeActivityLog === 'function') {
+        await writeActivityLog({
+          module: 'SALES',
+          functionName: 'handleSaveBuyer',
+          action: 'CREATE_BUYER',
+          docId: res.id || '',
+          refNo: nameVal,
+          summary: `เพิ่มรายชื่อผู้ซื้อใหม่: ${nameVal}${fullnameVal ? ` (${fullnameVal})` : ''}`,
+          afterData: payload
+        });
+      }
+
       if (addBuyerModalInstance) addBuyerModalInstance.hide();
       if (typeof Swal !== 'undefined') {
         Swal.fire({
@@ -169,6 +183,16 @@ async function handleSaveBuyer(e) {
       if (typeof Swal !== 'undefined') Swal.fire('ข้อผิดพลาด', res.message, 'error');
     }
   } catch (err) {
+    if (typeof writeActivityLog === 'function') {
+      await writeActivityLog({
+        module: 'SALES',
+        functionName: 'handleSaveBuyer',
+        action: 'ERROR_CREATE_BUYER',
+        refNo: nameVal,
+        summary: `เพิ่มรายชื่อผู้ซื้อไม่สำเร็จ: ${err.message || err}`,
+        afterData: payload
+      });
+    }
     if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาดจากระบบ', err.message || err.toString(), 'error');
   }
 }
@@ -234,17 +258,9 @@ function calculateTotal() {
 }
 
 async function updateSaleNoPreview() {
+  // ✅ ป้องกันไม่ให้รันเลขที่เอกสารใหม่มาทับเลขเดิม หากกำลังอยู่ในโหมดแก้ไข
   const editDocId = document.getElementById('editDocId')?.value;
-  if (editDocId) {
-    // 📝 เก็บ Log กรณีฟังก์ชันนี้ถูกเรียกขณะอยู่ในโหมดแก้ไข (เพื่อดูว่าอะไรเป็นตัวเรียก)
-    if (typeof writeSystemLog === 'function') {
-      writeSystemLog('PREVIEW_BLOCKED_IN_EDIT', 'sale-record.js', 'updateSaleNoPreview', {
-        editDocId: editDocId,
-        currentSaleNoInput: document.getElementById('saleNo')?.value || ''
-      });
-    }
-    return;
-  }
+  if (editDocId) return;
 
   const dateEl = document.getElementById('saleDate');
   const rawDate = dateEl ? dateEl.value : '';
@@ -258,9 +274,6 @@ async function updateSaleNoPreview() {
     }
   } catch (err) {
     console.error("Error updating SaleNo preview:", err);
-    if (typeof writeSystemLog === 'function') {
-      writeSystemLog('ERROR_PREVIEW_SALENO', 'sale-record.js', 'updateSaleNoPreview', { dateForDB, error: err.message }, true);
-    }
   }
 }
 
@@ -286,6 +299,19 @@ function resetForm() {
 
 async function handleSalesSubmit(e) {
   e.preventDefault();
+
+  // 🔒 1. ป้องกันการกดปุ่มซ้ำหรือกด Enter รัวๆ ขณะกำลังบันทึก
+  if (isSubmittingSale) return;
+
+  const saveBtn = document.getElementById('btnSaveRecord');
+  const parseCleanNum = (elId) => {
+    const el = document.getElementById(elId);
+    if (!el || !el.value) return 0;
+    const cleaned = String(el.value).replace(/,/g, '').trim();
+    const num = parseFloat(cleaned);
+    return isNaN(num) ? 0 : num;
+  };
+
   const isFuel = document.getElementById('itemTypeFuel') ? document.getElementById('itemTypeFuel').checked : true;
   const itemType = isFuel ? 'น้ำมัน' : 'อื่นๆ';
   const precisionMode = document.getElementById('decimalPrecision').value;
@@ -293,15 +319,25 @@ async function handleSalesSubmit(e) {
   const rawDate = document.getElementById('saleDate').value;
   const dateForDB = formatDateForDB(rawDate);
 
-  const price = parseFloat(document.getElementById('pricePerLiter').value) || 0;
-  const liters = parseFloat(document.getElementById('liters').value) || 0;
+  const price = parseCleanNum('pricePerLiter');
+  const liters = parseCleanNum('liters');
 
   const fuelItemName = document.getElementById('fuelItemName') ? document.getElementById('fuelItemName').value : '95';
   const otherItemName = document.getElementById('otherItemName') ? document.getElementById('otherItemName').value.trim() : '';
   const itemName = isFuel ? fuelItemName : otherItemName;
 
-  const otherQty = document.getElementById('otherQty') ? (parseFloat(document.getElementById('otherQty').value) || 0) : 0;
-  const otherUnitPrice = document.getElementById('otherUnitPrice') ? (parseFloat(document.getElementById('otherUnitPrice').value) || 0) : 0;
+  const otherQty = parseCleanNum('otherQty');
+  const otherUnitPrice = parseCleanNum('otherUnitPrice');
+
+  // 🔍 2. ตรวจสอบความครบถ้วนของข้อมูลก่อนส่งบันทึก
+  if (!dateForDB) {
+    if (typeof Swal !== 'undefined') Swal.fire('ข้อมูลไม่ครบ', 'กรุณาระบุวันที่ขายให้ถูกต้อง', 'warning');
+    return;
+  }
+  if (!isFuel && !otherItemName) {
+    if (typeof Swal !== 'undefined') Swal.fire('ข้อมูลไม่ครบ', 'กรุณาระบุชื่อรายการสินค้า (ประเภทอื่นๆ)', 'warning');
+    return;
+  }
 
   const rawTotal = isFuel ? (price * liters) : (otherQty * otherUnitPrice);
   let finalTotal = rawTotal;
@@ -321,9 +357,14 @@ async function handleSalesSubmit(e) {
   const selectedPayRadio = document.querySelector('input[name="paymentType"]:checked');
   const paymentType = selectedPayRadio ? selectedPayRadio.value : 'เงินสด';
 
+  const editDocId = (document.getElementById('editDocId')?.value || '').trim();
+  const isUpdate = !!editDocId;
+  const beforeItem = isUpdate ? (rawSalesData.find(x => x.id === editDocId) || null) : null;
+  const actor = typeof getCurrentActor === 'function' ? getCurrentActor() : { username: 'system' };
+
   const payload = {
-    docId: document.getElementById('editDocId').value,
-    saleNo: document.getElementById('saleNo').value,
+    docId: editDocId,
+    saleNo: document.getElementById('saleNo').value.trim(),
     date: dateForDB,
     buyerName: document.getElementById('buyerName').value.trim(),
     itemType: itemType,
@@ -336,48 +377,86 @@ async function handleSalesSubmit(e) {
     totalAmount: finalTotal,
     paymentType: paymentType,
     remarks: document.getElementById('remarks').value.trim(),
-    recordedBy: window.currentUser ? window.currentUser.username : 'system'
+    recordedBy: actor.username
   };
 
-  // 📝 เก็บ Log ค่าที่กำลังจะถูกส่งไปบันทึก (เช็กว่า docId กับ saleNo ตรงกันไหมก่อนเข้า DB)
-  if (typeof writeSystemLog === 'function') {
-    writeSystemLog(payload.docId ? 'SUBMIT_EDIT_FORM' : 'SUBMIT_NEW_FORM', 'sale-record.js', 'handleSalesSubmit', {
-      docId: payload.docId,
-      saleNo: payload.saleNo,
-      date: payload.date,
-      buyerName: payload.buyerName,
-      totalAmount: payload.totalAmount
-    });
-  }
+  // 🔒 ล็อกสถานะและปุ่มกดทันที
+  isSubmittingSale = true;
+  if (saveBtn) saveBtn.disabled = true;
 
-  if (typeof Swal !== 'undefined') Swal.fire({ title: 'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+  if (typeof Swal !== 'undefined') {
+    Swal.fire({ title: 'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+  }
 
   try {
     const res = await saveSaleRecord(payload);
-    if (res.success) {
+    if (res && res.success) {
+      const savedSaleNo = res.saleNo || payload.saleNo;
+      const savedDocId = res.docId || editDocId || savedSaleNo;
+
+      // 📝 บันทึก Log สร้างใหม่ / แก้ไขรายการขาย
+      if (typeof writeActivityLog === 'function') {
+        const qtyUnit = isFuel ? `${liters} ลิตร` : `${otherQty} หน่วย`;
+        await writeActivityLog({
+          module: 'SALES',
+          functionName: 'handleSalesSubmit',
+          action: isUpdate ? 'UPDATE_SALE' : 'CREATE_SALE',
+          docId: savedDocId,
+          refNo: savedSaleNo,
+          summary: isUpdate
+            ? `แก้ไขรายการขาย ${savedSaleNo} | ลูกค้า: ${payload.buyerName} | ${itemName} (${qtyUnit}) | ยอด ${finalTotal.toLocaleString('th-TH')} บาท (${paymentType})`
+            : `บันทึกรายการขายใหม่ ${savedSaleNo} | ลูกค้า: ${payload.buyerName} | ${itemName} (${qtyUnit}) | ยอด ${finalTotal.toLocaleString('th-TH')} บาท (${paymentType})`,
+          beforeData: beforeItem,
+          afterData: { ...payload, saleNo: savedSaleNo, docId: savedDocId }
+        });
+      }
+
       closeSaleModal();
+      resetForm();
+
       if (typeof Swal !== 'undefined') {
         Swal.fire({
           icon: 'success',
           title: 'บันทึกสำเร็จ!',
-          text: `บันทึกข้อมูลรายการขายเลขที่ ${res.saleNo || payload.saleNo} เรียบร้อยแล้ว`,
+          text: `บันทึกข้อมูลรายการขายเลขที่ ${savedSaleNo} เรียบร้อยแล้ว`,
           confirmButtonText: 'ตกลง',
           confirmButtonColor: '#005f73'
         });
       }
-      resetForm();
       await loadSalesData();
     } else {
-      if (typeof writeSystemLog === 'function') {
-        writeSystemLog('SUBMIT_FAILED', 'sale-record.js', 'handleSalesSubmit', { payload, message: res.message }, true);
+      if (typeof writeActivityLog === 'function') {
+        await writeActivityLog({
+          module: 'SALES',
+          functionName: 'handleSalesSubmit',
+          action: isUpdate ? 'ERROR_UPDATE_SALE' : 'ERROR_CREATE_SALE',
+          docId: editDocId,
+          refNo: payload.saleNo,
+          summary: `บันทึกรายการขายไม่สำเร็จ (${payload.saleNo}): ${res ? res.message : 'ไม่ทราบสาเหตุ'}`,
+          beforeData: beforeItem,
+          afterData: payload
+        });
       }
-      if (typeof Swal !== 'undefined') Swal.fire('ข้อผิดพลาด', res.message, 'error');
+      if (typeof Swal !== 'undefined') Swal.fire('ข้อผิดพลาด', res ? res.message : 'ไม่สามารถบันทึกข้อมูลได้', 'error');
     }
   } catch (err) {
-    if (typeof writeSystemLog === 'function') {
-      writeSystemLog('SUBMIT_EXCEPTION', 'sale-record.js', 'handleSalesSubmit', { payload, error: err.message || err.toString() }, true);
+    if (typeof writeActivityLog === 'function') {
+      await writeActivityLog({
+        module: 'SALES',
+        functionName: 'handleSalesSubmit',
+        action: isUpdate ? 'ERROR_UPDATE_SALE' : 'ERROR_CREATE_SALE',
+        docId: editDocId,
+        refNo: payload.saleNo,
+        summary: `เกิดข้อผิดพลาดระบบตอนบันทึกรายการขาย (${payload.saleNo}): ${err.message || err}`,
+        beforeData: beforeItem,
+        afterData: payload
+      });
     }
     if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาดจากระบบ', err.message || err.toString(), 'error');
+  } finally {
+    // 🔓 ปลดล็อกปุ่มเสมอไม่ว่าจะบันทึกสำเร็จหรือเกิด Error
+    isSubmittingSale = false;
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 
@@ -545,20 +624,21 @@ function editRecord(id) {
   const item = rawSalesData.find(x => x.id === id);
   if (!item) return;
 
-  const correctedSaleNo = (item.id && String(item.id).startsWith('SB')) ? item.id : (item.saleNo || '');
-
-  // 📝 เก็บ Log ตอนกดเปิดแก้ไข เพื่อดูว่าค่าใน DB ก่อนแก้เป็นอะไร
-  if (typeof writeSystemLog === 'function') {
-    writeSystemLog('OPEN_EDIT_MODAL', 'sale-record.js', 'editRecord', {
+  // 📝 บันทึก Log ว่ามีพนักงานกดเปิดหน้าต่างแก้ไขรายการนี้
+  if (typeof writeActivityLog === 'function') {
+    writeActivityLog({
+      module: 'SALES',
+      functionName: 'editRecord',
+      action: 'OPEN_EDIT_SALE',
       docId: item.id,
-      dbSaleNo: item.saleNo || '',
-      appliedSaleNo: correctedSaleNo,
-      date: item.date || ''
+      refNo: item.saleNo || item.id,
+      summary: `เปิดหน้าต่างแก้ไขรายการขาย ${item.saleNo || item.id} (ลูกค้า: ${item.buyerName || '-'})`,
+      beforeData: item
     });
   }
 
   document.getElementById('editDocId').value = item.id;
-  document.getElementById('saleNo').value = correctedSaleNo;
+  document.getElementById('saleNo').value = item.saleNo || '';
 
   if (item.date) {
     let parts = String(item.date).trim().split(/[\/\-]/);
@@ -575,6 +655,7 @@ function editRecord(id) {
       }
       if (y > 2400) y -= 543;
       if (typeof fp !== 'undefined' && fp) {
+        // ✅ เปลี่ยนจาก true เป็น false เพื่อไม่ให้กระตุ้น onChange ตอนโหลดข้อมูลเดิม
         fp.setDate(new Date(y, m, d), false);
       } else {
         document.getElementById('saleDate').value = `${String(d).padStart(2, '0')}/${String(m + 1).padStart(2, '0')}/${y + 543}`;
@@ -623,12 +704,13 @@ function editRecord(id) {
     document.getElementById('btnSaveRecord').innerHTML = `<i class="bi bi-pencil-square me-1"></i> อัปเดตข้อมูลการขาย`;
   }
 
+  // เปิด Modal แก้ไข
   const modalEl = document.getElementById('saleModal');
   if (modalEl) {
     if (!saleModalInstance) {
       saleModalInstance = new bootstrap.Modal(modalEl);
     }
-    document.getElementById('saleModalLabel').innerHTML = `<i class="bi bi-pencil-square me-2"></i>แก้ไขรายการขาย (${correctedSaleNo})`;
+    document.getElementById('saleModalLabel').innerHTML = `<i class="bi bi-pencil-square me-2"></i>แก้ไขรายการขาย (${item.saleNo})`;
     saleModalInstance.show();
   }
 }
@@ -636,9 +718,12 @@ function editRecord(id) {
 function deleteRecord(id) {
   if (typeof Swal === 'undefined') return;
 
+  const targetItem = rawSalesData.find(x => x.id === id) || null;
+  const targetSaleNo = targetItem ? (targetItem.saleNo || id) : id;
+
   Swal.fire({
     title: 'ยืนยันการลบ?',
-    text: 'เมื่อลบแล้วจะไม่สามารถกู้คืนรายการนี้ได้',
+    text: `เมื่อลบรายการ ${targetSaleNo} แล้วจะไม่สามารถกู้คืนได้`,
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#d33',
@@ -650,12 +735,49 @@ function deleteRecord(id) {
       try {
         const res = await deleteSaleRecord(id);
         if (res.success) {
+          // 📝 บันทึก Log การลบรายการขาย พร้อมข้อมูลเดิมก่อนถูกลบ
+          if (typeof writeActivityLog === 'function') {
+            await writeActivityLog({
+              module: 'SALES',
+              functionName: 'deleteRecord',
+              action: 'DELETE_SALE',
+              docId: id,
+              refNo: targetSaleNo,
+              summary: targetItem
+                ? `ลบรายการขาย ${targetSaleNo} | ลูกค้า: ${targetItem.buyerName} | ${targetItem.itemName} | ยอด ${Number(targetItem.totalAmount || 0).toLocaleString('th-TH')} บาท`
+                : `ลบรายการขาย ID: ${id}`,
+              beforeData: targetItem
+            });
+          }
+
           Swal.fire('สำเร็จ', 'ลบรายการเรียบร้อยแล้ว', 'success');
           await loadSalesData();
         } else {
+          if (typeof writeActivityLog === 'function') {
+            await writeActivityLog({
+              module: 'SALES',
+              functionName: 'deleteRecord',
+              action: 'ERROR_DELETE_SALE',
+              docId: id,
+              refNo: targetSaleNo,
+              summary: `ลบรายการขาย ${targetSaleNo} ไม่สำเร็จ: ${res.message}`,
+              beforeData: targetItem
+            });
+          }
           Swal.fire('ข้อผิดพลาด', res.message, 'error');
         }
       } catch (err) {
+        if (typeof writeActivityLog === 'function') {
+          await writeActivityLog({
+            module: 'SALES',
+            functionName: 'deleteRecord',
+            action: 'ERROR_DELETE_SALE',
+            docId: id,
+            refNo: targetSaleNo,
+            summary: `เกิดข้อผิดพลาดระบบตอนลบรายการขาย ${targetSaleNo}: ${err.message || err}`,
+            beforeData: targetItem
+          });
+        }
         Swal.fire('เกิดข้อผิดพลาดจากระบบ', err.message || err.toString(), 'error');
       }
     }

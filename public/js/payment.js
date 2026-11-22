@@ -40,6 +40,10 @@ function switchPaymentTab(tabName) {
   const viewCredit = document.getElementById('creditSalesSubView');
   const viewExp = document.getElementById('companyExpenseSubView');
 
+  // รีเซ็ตตัวกรองชื่อเมื่อสลับแท็บระหว่างลูกหนี้กับค่าใช้จ่าย
+  const nameSelect = document.getElementById('pmtFilterName');
+  if (nameSelect) nameSelect.value = 'ALL';
+
   if (tabName === 'credit') {
     btnCredit.className = "btn btn-lg btn-success w-100 py-3 fw-bold shadow-sm active";
     btnExp.className = "btn btn-lg btn-outline-primary w-100 py-3 fw-bold shadow-sm";
@@ -75,8 +79,6 @@ async function loadPaymentManagementData() {
     return;
   }
 
-  const buyerFilter = document.getElementById('pmtFilterName') ? document.getElementById('pmtFilterName').value : 'ALL';
-
   if (typeof Swal !== 'undefined') {
     Swal.fire({ title: 'กำลังโหลดข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
   }
@@ -84,7 +86,7 @@ async function loadPaymentManagementData() {
   try {
     if (currentPaymentTab === 'credit') {
       document.getElementById('creditSalesTableBody').innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">กำลังดึงข้อมูลลูกหนี้เงินเชื่อ...</td></tr>';
-      const res = await getCreditSalesByDateRange(startDateStr, endDateStr, buyerFilter);
+      const res = await getCreditSalesByDateRange(startDateStr, endDateStr, 'ALL');
       if (typeof Swal !== 'undefined') Swal.close();
       renderCreditSalesTable(res);
     } else {
@@ -162,7 +164,7 @@ function renderCompanyExpenseTable(res) {
     tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">ไม่พบรายการค่าใช้จ่ายในเดือนนี้</td></tr>';
     companyExpenseCache = [];
     updatePmtNameFilterDropdown([], 'expense');
-    updateCompanyExpenseTotal([]); // ล้างยอดรวมเป็น 0.00 เมื่อไม่พบข้อมูล
+    updateCompanyExpenseTotal([]);
     return;
   }
 
@@ -246,7 +248,7 @@ function filterPaymentTable() {
     tbody.innerHTML = html;
     updateCreditSalesTotal(filtered);
 
-} else {
+  } else {
     const tbody = document.getElementById('companyExpenseTableBody');
     let filtered = companyExpenseCache.filter(item => {
       const isTransferred = (item.transferStatus === 'transferred' || (item.transferDate && item.transferDate.trim() !== ''));
@@ -265,7 +267,7 @@ function filterPaymentTable() {
 
     if (filtered.length === 0) {
       tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">ไม่พบรายการตามเงื่อนไขที่กรอง</td></tr>';
-      updateCompanyExpenseTotal([]); // ล้างยอดรวมเป็น 0.00 เมื่อกรองแล้วไม่พบรายการ
+      updateCompanyExpenseTotal([]);
       return;
     }
 
@@ -344,6 +346,9 @@ async function submitCreditPayment(docId, saleDate) {
     return;
   }
 
+  const targetItem = creditSalesCache.find(x => String(x.docId || x.id) === String(docId)) || null;
+  const refSaleNo = targetItem ? (targetItem.saleNo || docId) : docId;
+
   if (typeof Swal !== 'undefined') {
     Swal.fire({ title: 'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
   }
@@ -353,6 +358,21 @@ async function submitCreditPayment(docId, saleDate) {
     if (typeof Swal !== 'undefined') Swal.close();
 
     if (res && res.success) {
+      // 📝 บันทึก Log รับชำระเงินลูกหนี้เงินเชื่อ
+      if (typeof writeActivityLog === 'function') {
+        const amt = targetItem ? Number(targetItem.totalAmount || 0) : 0;
+        await writeActivityLog({
+          module: 'PAYMENT',
+          functionName: 'submitCreditPayment',
+          action: 'MARK_CREDIT_PAID',
+          docId: docId,
+          refNo: refSaleNo,
+          summary: `บันทึกชำระเงินบิลขาย ${refSaleNo} | ลูกค้า: ${targetItem ? (targetItem.buyerName || '-') : '-'} | ยอด ${amt.toLocaleString('th-TH')} บาท | วันที่ชำระ ${formatDateThai(paidDate)}`,
+          beforeData: targetItem ? { paymentStatus: targetItem.paymentStatus, paidDate: targetItem.paidDate || '' } : null,
+          afterData: { paymentStatus: 'paid', paidDate: paidDate, saleDate: saleDate }
+        });
+      }
+
       Swal.fire({
         icon: 'success',
         title: 'สำเร็จ!',
@@ -363,9 +383,29 @@ async function submitCreditPayment(docId, saleDate) {
         loadPaymentManagementData();
       });
     } else {
+      if (typeof writeActivityLog === 'function') {
+        await writeActivityLog({
+          module: 'PAYMENT',
+          functionName: 'submitCreditPayment',
+          action: 'ERROR_MARK_CREDIT_PAID',
+          docId: docId,
+          refNo: refSaleNo,
+          summary: `บันทึกชำระเงินบิลขาย ${refSaleNo} ไม่สำเร็จ: ${res ? res.message : 'ไม่ทราบสาเหตุ'}`
+        });
+      }
       Swal.fire('เกิดข้อผิดพลาด', res ? res.message : 'ไม่สามารถอัปเดตได้', 'error');
     }
   } catch (err) {
+    if (typeof writeActivityLog === 'function') {
+      await writeActivityLog({
+        module: 'PAYMENT',
+        functionName: 'submitCreditPayment',
+        action: 'ERROR_MARK_CREDIT_PAID',
+        docId: docId,
+        refNo: refSaleNo,
+        summary: `เกิดข้อผิดพลาดระบบตอนบันทึกชำระเงิน ${refSaleNo}: ${err.message || err}`
+      });
+    }
     if (typeof Swal !== 'undefined') Swal.close();
     Swal.fire('เกิดข้อผิดพลาด', err.toString(), 'error');
   }
@@ -379,10 +419,18 @@ async function submitExpenseTransfer(docId, expDate) {
   const transferAccount = accountSelect ? accountSelect.value : '';
   const transferDate = dateInput ? dateInput.value : '';
 
+  if (!transferAccount) {
+    Swal.fire('กรุณาเลือกช่องทางชำระ', 'โปรดเลือกบัญชีหรือช่องทางการโอนจ่ายก่อนบันทึก', 'warning');
+    return;
+  }
+
   if (!transferDate) {
     Swal.fire('ข้อผิดพลาด', 'กรุณาระบุวันที่โอนจ่าย', 'warning');
     return;
   }
+
+  const targetItem = companyExpenseCache.find(x => String(x.docId || x.id) === String(docId)) || null;
+  const refExpNo = targetItem ? (targetItem.expenseNo || docId) : docId;
 
   if (typeof Swal !== 'undefined') {
     Swal.fire({ title: 'กำลังบันทึกการโอน...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
@@ -393,6 +441,21 @@ async function submitExpenseTransfer(docId, expDate) {
     if (typeof Swal !== 'undefined') Swal.close();
 
     if (res && res.success) {
+      // 📝 บันทึก Log การโอนจ่ายค่าใช้จ่ายบริษัท
+      if (typeof writeActivityLog === 'function') {
+        const amt = targetItem ? Number(targetItem.totalWithVat || targetItem.amount || 0) : 0;
+        await writeActivityLog({
+          module: 'PAYMENT',
+          functionName: 'submitExpenseTransfer',
+          action: 'MARK_EXPENSE_TRANSFERRED',
+          docId: docId,
+          refNo: refExpNo,
+          summary: `บันทึกโอนจ่ายค่าใช้จ่าย ${refExpNo} | ผู้รับเงิน: ${targetItem ? (targetItem.payeeName || targetItem.category || '-') : '-'} | บัญชี: ${transferAccount} | ยอด ${amt.toLocaleString('th-TH')} บาท | วันที่โอน ${formatDateThai(transferDate)}`,
+          beforeData: targetItem ? { transferStatus: targetItem.transferStatus || '', transferAccount: targetItem.transferAccount || '', transferDate: targetItem.transferDate || '' } : null,
+          afterData: { transferStatus: 'transferred', transferAccount: transferAccount, transferDate: transferDate, expDate: expDate }
+        });
+      }
+
       Swal.fire({
         icon: 'success',
         title: 'สำเร็จ!',
@@ -403,9 +466,29 @@ async function submitExpenseTransfer(docId, expDate) {
         loadPaymentManagementData();
       });
     } else {
+      if (typeof writeActivityLog === 'function') {
+        await writeActivityLog({
+          module: 'PAYMENT',
+          functionName: 'submitExpenseTransfer',
+          action: 'ERROR_MARK_EXPENSE_TRANSFERRED',
+          docId: docId,
+          refNo: refExpNo,
+          summary: `บันทึกโอนจ่ายค่าใช้จ่าย ${refExpNo} ไม่สำเร็จ: ${res ? res.message : 'ไม่ทราบสาเหตุ'}`
+        });
+      }
       Swal.fire('เกิดข้อผิดพลาด', res ? res.message : 'ไม่สามารถอัปเดตได้', 'error');
     }
   } catch (err) {
+    if (typeof writeActivityLog === 'function') {
+      await writeActivityLog({
+        module: 'PAYMENT',
+        functionName: 'submitExpenseTransfer',
+        action: 'ERROR_MARK_EXPENSE_TRANSFERRED',
+        docId: docId,
+        refNo: refExpNo,
+        summary: `เกิดข้อผิดพลาดระบบตอนบันทึกโอนจ่าย ${refExpNo}: ${err.message || err}`
+      });
+    }
     if (typeof Swal !== 'undefined') Swal.close();
     Swal.fire('เกิดข้อผิดพลาด', err.toString(), 'error');
   }
@@ -462,7 +545,6 @@ function updateCreditSalesTotal(displayData) {
   }
 }
 
-// ฟังก์ชันคำนวณยอดรวมจำนวนเงินค่าใช้จ่ายบริษัทจากรายการที่กำลังแสดงผล
 function updateCompanyExpenseTotal(displayData) {
   let totalSum = 0;
   if (Array.isArray(displayData) && displayData.length > 0) {

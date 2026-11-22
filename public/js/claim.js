@@ -1,3 +1,5 @@
+// public/js/claim.js
+
 let rawExpenseData = [];
 let currentSelectedClaimItems = [];
 
@@ -6,27 +8,18 @@ document.addEventListener('DOMContentLoaded', () => {
   loadClaimData();
 });
 
-// 🟢 ตัวแปรชื่อเดือนภาษาไทยเฉพาะโมดูล Claim
 const THAI_MONTHS = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
 ];
 
 // ==================== CLAIM SELECTION & SUMMARY ENGINE ====================
-
-// 🟢 ประกาศตัวแปรเก็บรายการที่เลือกไว้ใน Global Scope (ป้องกัน ReferenceError)
-if (typeof window.currentSelectedClaimItems === 'undefined') {
-  window.currentSelectedClaimItems = [];
-}
-
-// 🟢 1. ฟังก์ชันคำนวณและอัปเดตตัวเลขบนหน้าจอ (จำนวนรายการ และ ยอดเงินรวม)
-window.updateClaimSelectionSummary = function() {
+function updateClaimSelectionSummary() {
   const count = currentSelectedClaimItems.length;
 
-  // คำนวณยอดเงินรวมแบบ Cents เพื่อป้องกันปัญหาทศนิยมเพี้ยนของ JavaScript Floating Point
-  const totalCents = currentSelectedClaimItems.reduce((sum, item) => {
+  const totalCents = currentSelectedClaimItems.reduce((sumCents, item) => {
     const val = parseFloat(item.totalAmount || item.totalWithVat || item.amount || 0);
-    return sum + Math.round(val * 100);
+    return sumCents + Math.round(val * 100);
   }, 0);
 
   const grandTotal = totalCents / 100;
@@ -35,62 +28,58 @@ window.updateClaimSelectionSummary = function() {
   const amountEl = document.getElementById('selectedClaimAmount');
 
   if (countEl) countEl.innerText = count;
-  if (amountEl) amountEl.innerText = grandTotal.toLocaleString('th-TH', { 
-    minimumFractionDigits: 2, 
-    maximumFractionDigits: 2 
-  });
-};
+  if (amountEl) {
+    amountEl.innerText = grandTotal.toLocaleString('th-TH', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  }
+}
 
-// 🟢 2. ฟังก์ชันเมื่อเลือก/ยกเลิก รายการแต่ละแถวในตาราง
-window.handleClaimItemSelect = function(id, isChecked) {
+function handleClaimItemSelect(id, isChecked) {
   if (typeof isChecked === 'undefined') {
     const cb = document.querySelector(`.claim-item-check[value="${id}"]`);
     isChecked = cb ? cb.checked : false;
   }
 
-  if (typeof rawExpenseData !== 'undefined' && Array.isArray(rawExpenseData)) {
-    const itemData = rawExpenseData.find(x => String(x.id) === String(id));
-    if (itemData) {
-      if (isChecked) {
-        if (!currentSelectedClaimItems.some(x => String(x.id) === String(id))) {
-          currentSelectedClaimItems.push(itemData);
-        }
-      } else {
-        currentSelectedClaimItems = currentSelectedClaimItems.filter(x => String(x.id) !== String(id));
-      }
+  const item = rawExpenseData.find(x => String(x.id) === String(id));
+  if (!item) return;
+
+  if (isChecked) {
+    if (!currentSelectedClaimItems.some(x => String(x.id) === String(id))) {
+      currentSelectedClaimItems.push(item);
     }
+  } else {
+    currentSelectedClaimItems = currentSelectedClaimItems.filter(x => String(x.id) !== String(id));
   }
 
   updateClaimSelectionSummary();
-};
+}
 
-// 🟢 3. ฟังก์ชันเลือกทั้งหมด / ไม่เลือกทั้งหมด (Select All Checkbox)
-window.toggleSelectAllClaimItems = function(masterCb) {
-  const isChecked = masterCb ? masterCb.checked : false;
-  const checkboxes = document.querySelectorAll('.claim-item-check:not(:disabled)');
+function toggleSelectAllClaimItems(masterCheckbox) {
+  const isChecked = masterCheckbox ? masterCheckbox.checked : false;
+  const checkboxes = document.querySelectorAll('.claim-item-check:not([disabled])');
 
   checkboxes.forEach(cb => {
     cb.checked = isChecked;
     const itemId = cb.value;
+    const item = rawExpenseData.find(x => String(x.id) === String(itemId));
 
-    if (typeof rawExpenseData !== 'undefined' && Array.isArray(rawExpenseData)) {
-      const itemData = rawExpenseData.find(x => String(x.id) === String(itemId));
-      if (itemData) {
-        if (isChecked) {
-          if (!currentSelectedClaimItems.some(x => String(x.id) === String(itemId))) {
-            currentSelectedClaimItems.push(itemData);
-          }
-        } else {
-          currentSelectedClaimItems = currentSelectedClaimItems.filter(x => String(x.id) !== String(itemId));
+    if (item) {
+      if (isChecked) {
+        if (!currentSelectedClaimItems.some(x => String(x.id) === String(itemId))) {
+          currentSelectedClaimItems.push(item);
         }
+      } else {
+        currentSelectedClaimItems = currentSelectedClaimItems.filter(x => String(x.id) !== String(itemId));
       }
     }
   });
 
   updateClaimSelectionSummary();
-};
+}
 
-// 🟢 ฟังก์ชันสร้าง Dropdown เดือน/ปี สำหรับหน้าตั้งเบิกค่าใช้จ่าย
+// ==================== DROPDOWN & LOAD DATA ====================
 function setupClaimMonthYearDropdowns(startMonthId, startYearId, endMonthId, endYearId) {
   const startM = document.getElementById(startMonthId);
   const endM = document.getElementById(endMonthId);
@@ -119,17 +108,11 @@ function setupClaimMonthYearDropdowns(startMonthId, startYearId, endMonthId, end
   endY.value = currentYearBE;
 }
 
-// 🟢 ฟังก์ชันเรียกใช้งาน Dropdown กรองเดือน/ปี
 function initClaimMonthYearFilters() {
-  if (typeof setupClaimMonthYearDropdowns === 'function') {
-    setupClaimMonthYearDropdowns('filterClaimStartMonth', 'filterClaimStartYear', 'filterClaimEndMonth', 'filterClaimEndYear');
-  }
+  setupClaimMonthYearDropdowns('filterClaimStartMonth', 'filterClaimStartYear', 'filterClaimEndMonth', 'filterClaimEndYear');
 }
 
-// 1. ดึงข้อมูลค่าใช้จ่ายจาก Firestore Direct
 async function loadClaimData() {
-  console.log("🚀 [loadClaimData] START");
-
   const startMEl = document.getElementById('filterClaimStartMonth');
   const startYEl = document.getElementById('filterClaimStartYear');
   const endMEl   = document.getElementById('filterClaimEndMonth');
@@ -163,7 +146,7 @@ async function loadClaimData() {
     if (res && res.success) {
       rawExpenseData = res.data || [];
       currentSelectedClaimItems = [];
-      
+
       const masterCheck = document.getElementById('checkAllClaim');
       if (masterCheck) masterCheck.checked = false;
 
@@ -178,15 +161,11 @@ async function loadClaimData() {
   }
 }
 
-// 2. เมื่อเปลี่ยนสถานะ Toggle "ยังไม่ตั้งเบิก / ตั้งเบิกแล้ว"
 function filterClaimByStatus() {
   loadClaimData();
 }
 
-// 3. เรนเดอร์ตารางรายการค่าใช้จ่าย
 function renderClaimTable(records) {
-  console.log("🎨 [renderClaimTable] กำลังเรนเดอร์ตาราง จำนวนรายการ:", records ? records.length : 0);
-
   if ($.fn.DataTable.isDataTable('#claimTable')) {
     $('#claimTable').DataTable().destroy();
   }
@@ -202,15 +181,9 @@ function renderClaimTable(records) {
     records.forEach(item => {
       const tr = document.createElement('tr');
       const isChecked = currentSelectedClaimItems.some(x => String(x.id) === String(item.id)) ? 'checked' : '';
-      
-      // 🟢 1. ดึงยอดเงินพร้อม Fallback ที่รองรับทุกโครงสร้างข้อมูล
       const amount = parseFloat(item.totalAmount || item.amount || item.totalWithVat) || 0;
-      
-      // 🟢 2. ดึงรายละเอียดที่แมปมาจาก getExpenseRecordsForClaim
       const description = item.description || item.remarks || item.payeeName || '-';
-      
-      // 🟢 3. ดึงเลขที่ใบตั้งเบิก (claimNo) หากตั้งเบิกแล้ว
-      const claimNoDisplay = item.claimNo || item.requisitionNo || item.remarks || '-';
+      const claimNoDisplay = item.claimNo || item.requisitionNo || '-';
       const isReq = item.isRequisition === true;
 
       tr.innerHTML = `
@@ -229,8 +202,6 @@ function renderClaimTable(records) {
       `;
       tbody.appendChild(tr);
     });
-  } else {
-    console.warn("⚠️ ไม่พบข้อมูลรายการที่จะนำมาแสดงในตาราง");
   }
 
   $('#claimTable').DataTable({
@@ -240,55 +211,7 @@ function renderClaimTable(records) {
   });
 }
 
-// 4. จัดการเลือก Checkbox แต่ละรายการ / ทั้งหมด
-function handleClaimItemSelect(id, isChecked) {
-  const item = rawExpenseData.find(x => String(x.id) === String(id));
-  if (!item) return;
-
-  if (isChecked) {
-    if (!currentSelectedClaimItems.some(x => String(x.id) === String(id))) {
-      currentSelectedClaimItems.push(item);
-    }
-  } else {
-    currentSelectedClaimItems = currentSelectedClaimItems.filter(x => String(x.id) !== String(id));
-  }
-
-  updateClaimSelectionSummary();
-}
-
-function toggleSelectAllClaimItems(masterCheckbox) {
-  const isChecked = masterCheckbox.checked;
-  const checkboxes = document.querySelectorAll('.claim-item-check:not([disabled])');
-  
-  currentSelectedClaimItems = [];
-  checkboxes.forEach(cb => {
-    cb.checked = isChecked;
-    if (isChecked) {
-      const item = rawExpenseData.find(x => String(x.id) === String(cb.value));
-      if (item) currentSelectedClaimItems.push(item);
-    }
-  });
-
-  updateClaimSelectionSummary();
-}
-
-function updateClaimSelectionSummary() {
-  const count = currentSelectedClaimItems.length;
-  const totalCents = currentSelectedClaimItems.reduce((sumCents, item) => {
-    const val = parseFloat(item.totalWithVat || item.amount || 0);
-    return sumCents + Math.round(val * 100);
-  }, 0);
-
-  const total = totalCents / 100;
-
-  const countEl = document.getElementById('selectedClaimCount');
-  const amountEl = document.getElementById('selectedClaimAmount');
-
-  if (countEl) countEl.innerText = count;
-  if (amountEl) amountEl.innerText = total.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-// 5. ดูตัวอย่างใบตั้งเบิก (Preview)
+// ==================== PREVIEW, PRINT & ISSUE CLAIM ====================
 async function previewClaimNote() {
   if (!Array.isArray(currentSelectedClaimItems) || currentSelectedClaimItems.length === 0) {
     Swal.fire('กรุณาเลือกรายการ', 'โปรดติ๊กเลือกอย่างน้อย 1 รายการเพื่อตั้งเบิกค่าใช้จ่าย', 'warning');
@@ -314,7 +237,7 @@ async function previewClaimNote() {
     let totalCents = 0;
 
     currentSelectedClaimItems.forEach((item, idx) => {
-      const amt = parseFloat(item.totalAmount) || 0;
+      const amt = parseFloat(item.totalAmount || item.totalWithVat || item.amount) || 0;
       totalCents += Math.round(amt * 100);
 
       const tr = document.createElement('tr');
@@ -323,16 +246,19 @@ async function previewClaimNote() {
         <td class="text-center">${item.expenseNo || item.id}</td>
         <td class="text-center">${typeof formatDateThai === 'function' ? formatDateThai(item.date) : item.date}</td>
         <td>${item.category || item.itemName || 'ค่าใช้จ่ายทั่วไป'}</td>
-        <td>${item.remarks || item.payeeName || '-'}</td>
+        <td>${item.description || item.remarks || item.payeeName || '-'}</td>
         <td class="text-end fw-bold">${amt.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       `;
       prevTbody.appendChild(tr);
     });
 
     const grandTotal = totalCents / 100;
-    document.getElementById('prevClaimGrandTotal').innerText = grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    document.getElementById('prevClaimGrandTotal').innerText = grandTotal.toLocaleString('th-TH', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
 
-    const previewModal = new bootstrap.Modal(document.getElementById('claimPreviewModal'));
+    const previewModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('claimPreviewModal'));
     previewModal.show();
   } catch (err) {
     Swal.close();
@@ -340,18 +266,40 @@ async function previewClaimNote() {
   }
 }
 
-// 6. พิมพ์เอกสารใบตั้งเบิกค่าใช้จ่าย
-function printClaimDocument() {
+function printClaimDocument(claimNoForLog = '') {
   const printDocEl = document.getElementById('printableClaimDocument');
   if (!printDocEl) {
     Swal.fire('ข้อผิดพลาด', 'ไม่พบองค์ประกอบเอกสารใบตั้งเบิกค่าใช้จ่าย', 'error');
     return;
   }
 
+  const claimNo = claimNoForLog || (document.getElementById('prevClaimNo')?.innerText || '');
+
   const printWindow = window.open('', '_blank', 'width=850,height=1100');
   if (!printWindow) {
+    if (typeof writeActivityLog === 'function') {
+      writeActivityLog({
+        module: 'CLAIM',
+        functionName: 'printClaimDocument',
+        action: 'ERROR_PRINT_CLAIM',
+        docId: claimNo,
+        refNo: claimNo,
+        summary: `พิมพ์ใบตั้งเบิก ${claimNo} ไม่สำเร็จ เนื่องจากเบราว์เซอร์บล็อก Pop-up`
+      });
+    }
     Swal.fire('Pop-up ถูกบล็อก', 'กรุณาอนุญาตให้เบราว์เซอร์เปิด Pop-up เพื่อพิมพ์เอกสาร', 'warning');
     return;
+  }
+
+  if (typeof writeActivityLog === 'function') {
+    writeActivityLog({
+      module: 'CLAIM',
+      functionName: 'printClaimDocument',
+      action: 'PRINT_CLAIM',
+      docId: claimNo,
+      refNo: claimNo,
+      summary: `สั่งพิมพ์เอกสารใบตั้งเบิก ${claimNo}`
+    });
   }
 
   printWindow.document.write(`
@@ -386,7 +334,6 @@ function printClaimDocument() {
   printWindow.document.close();
 }
 
-// 7. ยืนยันออกใบตั้งเบิกและสั่งพิมพ์
 async function confirmAndIssueClaim() {
   if (!currentSelectedClaimItems || currentSelectedClaimItems.length === 0) {
     Swal.fire('กรุณาเลือกรายการ', 'โปรดเลือกอย่างน้อย 1 รายการเพื่อยืนยันตั้งเบิก', 'warning');
@@ -425,12 +372,29 @@ async function confirmAndIssueClaim() {
     Swal.close();
 
     if (res && res.success) {
-      document.getElementById('prevClaimNo').innerText = res.claimNo;
+      // 📝 บันทึก Log การออกใบตั้งเบิกค่าใช้จ่าย
+      if (typeof writeActivityLog === 'function') {
+        await writeActivityLog({
+          module: 'CLAIM',
+          functionName: 'confirmAndIssueClaim',
+          action: 'CREATE_CLAIM',
+          docId: res.claimNo,
+          refNo: res.claimNo,
+          summary: `ออกใบตั้งเบิก ${res.claimNo} | จำนวน ${expenseIds.length} รายการ (${claimData.expenseNos.join(', ')}) | ยอดรวม ${grandTotal.toLocaleString('th-TH')} บาท`,
+          afterData: {
+            claimNo: res.claimNo,
+            claimDate: claimDateStr,
+            ...claimData,
+            expenseIds: expenseIds
+          }
+        });
+      }
 
+      document.getElementById('prevClaimNo').innerText = res.claimNo;
       if (modalInstance) modalInstance.hide();
 
       // สั่งพิมพ์เอกสารใบตั้งเบิก
-      printClaimDocument();
+      printClaimDocument(res.claimNo);
 
       Swal.fire({
         title: 'บันทึกตั้งเบิกสำเร็จ!',
@@ -441,9 +405,27 @@ async function confirmAndIssueClaim() {
         loadClaimData();
       });
     } else {
+      if (typeof writeActivityLog === 'function') {
+        await writeActivityLog({
+          module: 'CLAIM',
+          functionName: 'confirmAndIssueClaim',
+          action: 'ERROR_CREATE_CLAIM',
+          summary: `ออกใบตั้งเบิกไม่สำเร็จ: ${res ? res.message : 'ไม่ทราบสาเหตุ'}`,
+          afterData: { claimDate: claimDateStr, ...claimData, expenseIds: expenseIds }
+        });
+      }
       Swal.fire('เกิดข้อผิดพลาด', res ? res.message : 'ไม่สามารถบันทึกข้อมูลได้', 'error');
     }
   } catch (err) {
+    if (typeof writeActivityLog === 'function') {
+      await writeActivityLog({
+        module: 'CLAIM',
+        functionName: 'confirmAndIssueClaim',
+        action: 'ERROR_CREATE_CLAIM',
+        summary: `เกิดข้อผิดพลาดระบบตอนออกใบตั้งเบิก: ${err.message || err}`,
+        afterData: { claimDate: claimDateStr, ...claimData, expenseIds: expenseIds }
+      });
+    }
     Swal.close();
     Swal.fire('เกิดข้อผิดพลาดจาก Server', err.toString(), 'error');
   }

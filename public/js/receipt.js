@@ -124,22 +124,29 @@ function filterUnreceiptedTable() {
     return;
   }
 
-  // 📌 จัดเรียงข้อมูลใน filtered ตาม rcpSortColumn และ rcpSortAsc
+  // จัดเรียงข้อมูลใน filtered ตาม rcpSortColumn และ rcpSortAsc
   filtered.sort((a, b) => {
-    let valA = a[rcpSortColumn] ?? '';
-    let valB = b[rcpSortColumn] ?? '';
-
-    // การเรียงลำดับข้อมูลประเภทตัวเลข
-    if (['qty', 'liters', 'unitPrice', 'pricePerLiter', 'totalAmount'].includes(rcpSortColumn)) {
-      valA = parseFloat(valA) || 0;
-      valB = parseFloat(valB) || 0;
+    if (rcpSortColumn === 'qty' || rcpSortColumn === 'liters') {
+      const valA = parseFloat(a.qty || a.liters) || 0;
+      const valB = parseFloat(b.qty || b.liters) || 0;
       return rcpSortAsc ? valA - valB : valB - valA;
     }
 
-    // การเรียงลำดับข้อมูลประเภทข้อความและวันที่
-    valA = String(valA);
-    valB = String(valB);
-    return rcpSortAsc 
+    if (rcpSortColumn === 'unitPrice' || rcpSortColumn === 'pricePerLiter') {
+      const valA = parseFloat(a.pricePerLiter || a.unitPrice) || 0;
+      const valB = parseFloat(b.pricePerLiter || b.unitPrice) || 0;
+      return rcpSortAsc ? valA - valB : valB - valA;
+    }
+
+    if (rcpSortColumn === 'totalAmount') {
+      const valA = parseFloat(a.totalAmount) || 0;
+      const valB = parseFloat(b.totalAmount) || 0;
+      return rcpSortAsc ? valA - valB : valB - valA;
+    }
+
+    const valA = String(a[rcpSortColumn] ?? '');
+    const valB = String(b[rcpSortColumn] ?? '');
+    return rcpSortAsc
       ? valA.localeCompare(valB, 'th', { numeric: true, sensitivity: 'base' })
       : valB.localeCompare(valA, 'th', { numeric: true, sensitivity: 'base' });
   });
@@ -200,11 +207,10 @@ async function generateBatchReceipts() {
     didOpen: () => Swal.showLoading()
   });
 
-  try {
-    // 1. ดึงข้อมูลรายการขายที่เลือกจาก unreceiptedCache
-    const selectedItems = unreceiptedCache.filter(item => selectedIds.includes(item.id));
+  const selectedItems = unreceiptedCache.filter(item => selectedIds.includes(item.id));
 
-    // 2. ดึงข้อมูลผู้ซื้อทั้งหมดเพื่อแมป ชื่อเต็ม/ที่อยู่/เลขภาษี
+  try {
+    // ดึงข้อมูลผู้ซื้อทั้งหมดเพื่อแมป ชื่อเต็ม/ที่อยู่/เลขภาษี
     const buyerMap = await getBuyerMapFromFirestore();
     const salesDataForGas = selectedItems.map(item => {
       const bInfo = buyerMap[item.buyerName] || {};
@@ -228,35 +234,78 @@ async function generateBatchReceipts() {
       };
     });
 
-    // 3. ส่งข้อมูลไปประมวลผลที่ GAS
+    // ส่งข้อมูลไปประมวลผลที่ GAS
     let res;
     if (typeof google !== 'undefined' && google.script && google.script.run) {
       google.script.run
         .withSuccessHandler(async (response) => {
-          await handleReceiptResponse(response, selectedIds);
+          await handleReceiptResponse(response, selectedIds, selectedItems);
         })
-        .withFailureHandler((err) => {
+        .withFailureHandler(async (err) => {
+          if (typeof writeActivityLog === 'function') {
+            await writeActivityLog({
+              module: 'RECEIPT',
+              functionName: 'generateBatchReceipts',
+              action: 'ERROR_CREATE_RECEIPT',
+              summary: `ออกใบเสร็จรับเงินไม่สำเร็จ (GAS Error): ${err.message || err}`,
+              afterData: { saleNos: selectedItems.map(x => x.saleNo || x.id) }
+            });
+          }
           Swal.fire('เกิดข้อผิดพลาด', err.toString(), 'error');
         })
         .createBatchReceiptsFromSalesData(salesDataForGas);
     } else if (typeof callBackendApi === 'function') {
       res = await callBackendApi('createBatchReceiptsFromSalesData', { salesDataList: salesDataForGas });
-      await handleReceiptResponse(res, selectedIds);
+      await handleReceiptResponse(res, selectedIds, selectedItems);
     } else {
       throw new Error("ไม่พบช่องทางการเชื่อมต่อ Google Apps Script");
     }
 
   } catch (err) {
     console.error("❌ Error generating receipts:", err);
+    if (typeof writeActivityLog === 'function') {
+      await writeActivityLog({
+        module: 'RECEIPT',
+        functionName: 'generateBatchReceipts',
+        action: 'ERROR_CREATE_RECEIPT',
+        summary: `เกิดข้อผิดพลาดระบบตอนออกใบเสร็จรับเงิน: ${err.message || err}`,
+        afterData: { saleNos: selectedItems.map(x => x.saleNo || x.id) }
+      });
+    }
     Swal.fire('เกิดข้อผิดพลาด', err.toString(), 'error');
   }
 }
 
 // Helper ประมวลผลผลลัพธ์หลังสร้าง PDF
-async function handleReceiptResponse(res, selectedIds) {
+async function handleReceiptResponse(res, selectedIds, selectedItems = []) {
+  const saleNos = selectedItems.map(x => x.saleNo || x.id);
+  const receiptNos = selectedItems.map(x => x.receiptNo).filter(Boolean);
+  const totalAmount = selectedItems.reduce((sum, x) => sum + (parseFloat(x.totalAmount) || 0), 0);
+
   if (res && res.success) {
     // อัปเดตสถานะ isReceiptIssued ลง Firestore Direct
     await updateSalesReceiptStatusInFirestore(selectedIds);
+
+    // 📝 บันทึก Log การออกใบเสร็จรับเงิน
+    if (typeof writeActivityLog === 'function') {
+      const refLabel = receiptNos.length > 0 ? receiptNos.join(', ') : saleNos.join(', ');
+      await writeActivityLog({
+        module: 'RECEIPT',
+        functionName: 'handleReceiptResponse',
+        action: 'CREATE_RECEIPT',
+        docId: saleNos.join(','),
+        refNo: refLabel,
+        summary: `ออกใบเสร็จรับเงินจำนวน ${res.count || selectedIds.length} ใบ | บิลขาย: ${saleNos.join(', ')} | ยอดรวม ${totalAmount.toLocaleString('th-TH')} บาท`,
+        afterData: {
+          count: res.count || selectedIds.length,
+          saleIds: selectedIds,
+          saleNos: saleNos,
+          receiptNos: receiptNos,
+          totalAmount: totalAmount,
+          pdfUrl: res.pdfUrl || ''
+        }
+      });
+    }
 
     let pdfHtml = `<p>ออกใบเสร็จรับเงินจำนวน <b>${res.count}</b> ใบ เรียบร้อยแล้ว</p>`;
     if (res.pdfUrl) {
@@ -283,6 +332,17 @@ async function handleReceiptResponse(res, selectedIds) {
       loadUnreceiptedData();
     });
   } else {
+    if (typeof writeActivityLog === 'function') {
+      await writeActivityLog({
+        module: 'RECEIPT',
+        functionName: 'handleReceiptResponse',
+        action: 'ERROR_CREATE_RECEIPT',
+        docId: saleNos.join(','),
+        refNo: saleNos.join(', '),
+        summary: `ออกใบเสร็จรับเงินไม่สำเร็จ: ${res ? res.message : 'ไม่ทราบสาเหตุ'}`,
+        afterData: { saleIds: selectedIds, saleNos: saleNos }
+      });
+    }
     Swal.fire('เกิดข้อผิดพลาด', res ? res.message : 'ไม่สามารถสร้างใบเสร็จได้', 'error');
   }
 }
@@ -306,7 +366,7 @@ function formatDateThai(dateStr) {
 
 function sortUnreceiptedTable(columnKey) {
   if (rcpSortColumn === columnKey) {
-    rcpSortAsc = !rcpSortAsc; // สลับ น้อยไปมาก <-> มากไปน้อย
+    rcpSortAsc = !rcpSortAsc;
   } else {
     rcpSortColumn = columnKey;
     rcpSortAsc = true;

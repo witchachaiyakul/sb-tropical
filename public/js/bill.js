@@ -2,6 +2,7 @@
 
 let rawUnpaidSalesData = [];
 let currentSelectedBillItems = [];
+let cachedEditBillingList = [];
 
 document.addEventListener('DOMContentLoaded', function () {
   initMonthYearDropdowns();
@@ -420,6 +421,24 @@ async function confirmAndIssueBilling() {
     const res = await confirmBilling(saleIds, billDateStr, billingData);
 
     if (res && res.success) {
+      // 📝 บันทึก Log ออกใบวางบิลใหม่
+      if (typeof writeActivityLog === 'function') {
+        await writeActivityLog({
+          module: 'BILLING',
+          functionName: 'confirmAndIssueBilling',
+          action: 'CREATE_BILLING',
+          docId: res.billNo,
+          refNo: res.billNo,
+          summary: `ออกใบวางบิล ${res.billNo} | ลูกค้า: ${buyerName} | จำนวน ${saleIds.length} รายการ (${billingData.saleNos.join(', ')}) | ยอดรวม ${grandTotal.toLocaleString('th-TH')} บาท`,
+          afterData: {
+            billNo: res.billNo,
+            billDate: billDateStr,
+            ...billingData,
+            saleIds: saleIds
+          }
+        });
+      }
+
       const prevBillNoEl = document.getElementById('prevBillNo');
       if (prevBillNoEl) prevBillNoEl.innerText = res.billNo;
       if (modalInstance) modalInstance.hide();
@@ -427,9 +446,27 @@ async function confirmAndIssueBilling() {
       // 2. เรียกฟังก์ชันสั่งสร้าง PDF ไปยัง GAS Generator Service
       await printBillingNoteDocument(res.billNo, billDateStr, billingData);
     } else {
+      if (typeof writeActivityLog === 'function') {
+        await writeActivityLog({
+          module: 'BILLING',
+          functionName: 'confirmAndIssueBilling',
+          action: 'ERROR_CREATE_BILLING',
+          summary: `ออกใบวางบิลไม่สำเร็จ (${buyerName}): ${res ? res.message : 'ไม่ทราบสาเหตุ'}`,
+          afterData: { billDate: billDateStr, ...billingData, saleIds: saleIds }
+        });
+      }
       Swal.fire('เกิดข้อผิดพลาด', res ? res.message : 'ไม่สามารถบันทึกข้อมูลได้', 'error');
     }
   } catch (err) {
+    if (typeof writeActivityLog === 'function') {
+      await writeActivityLog({
+        module: 'BILLING',
+        functionName: 'confirmAndIssueBilling',
+        action: 'ERROR_CREATE_BILLING',
+        summary: `เกิดข้อผิดพลาดระบบตอนออกใบวางบิล (${buyerName}): ${err.message || err}`,
+        afterData: { billDate: billDateStr, ...billingData, saleIds: saleIds }
+      });
+    }
     Swal.fire('เกิดข้อผิดพลาดจาก Server', err.toString(), 'error');
   }
 }
@@ -476,6 +513,19 @@ async function printBillingNoteDocument(billNo, billDateStr, billingData) {
     const res = await response.json();
 
     if (res && res.success && res.pdfUrl) {
+      // 📝 บันทึก Log สร้างไฟล์ PDF ใบวางบิลสำเร็จ
+      if (typeof writeActivityLog === 'function') {
+        writeActivityLog({
+          module: 'BILLING',
+          functionName: 'printBillingNoteDocument',
+          action: 'GENERATE_BILLING_PDF',
+          docId: billNo,
+          refNo: billNo,
+          summary: `สร้างไฟล์ PDF ใบวางบิล ${billNo} สำเร็จ`,
+          afterData: { billNo: billNo, pdfUrl: res.pdfUrl }
+        });
+      }
+
       Swal.fire({
         title: 'สร้าง PDF สำเร็จ!',
         html: `
@@ -496,6 +546,17 @@ async function printBillingNoteDocument(billNo, billDateStr, billingData) {
         resetBillingForm();
       });
     } else {
+      if (typeof writeActivityLog === 'function') {
+        writeActivityLog({
+          module: 'BILLING',
+          functionName: 'printBillingNoteDocument',
+          action: 'ERROR_BILLING_PDF',
+          docId: billNo,
+          refNo: billNo,
+          summary: `สร้างไฟล์ PDF ใบวางบิล ${billNo} ไม่สำเร็จ: ${res ? res.message : 'ไม่ทราบสาเหตุ'}`
+        });
+      }
+
       Swal.fire({
         title: 'บันทึกใบวางบิลสำเร็จ (PDF ขัดข้อง)',
         text: `บันทึกใบวางบิลเลขที่ ${billNo} ลงฐานข้อมูลแล้ว แต่สร้างไฟล์ PDF ไม่สำเร็จ: ${res ? res.message : 'ไม่ทราบสาเหตุ'}`,
@@ -505,6 +566,17 @@ async function printBillingNoteDocument(billNo, billDateStr, billingData) {
       });
     }
   } catch (err) {
+    if (typeof writeActivityLog === 'function') {
+      writeActivityLog({
+        module: 'BILLING',
+        functionName: 'printBillingNoteDocument',
+        action: 'ERROR_BILLING_PDF',
+        docId: billNo,
+        refNo: billNo,
+        summary: `เชื่อมต่อบริการสร้าง PDF ใบวางบิล ${billNo} ไม่สำเร็จ: ${err.message || err}`
+      });
+    }
+
     Swal.fire({
       title: 'บันทึกใบวางบิลสำเร็จ (PDF ขัดข้อง)',
       text: `บันทึกใบวางบิลเลขที่ ${billNo} ลงฐานข้อมูลแล้ว แต่ไม่สามารถเชื่อมต่อบริการสร้าง PDF ได้ (${err.toString()})`,
@@ -581,11 +653,14 @@ async function searchBillingNotesForEdit() {
     const res = await searchBillingNotes(queryStr);
 
     if (!res || !res.success) {
+      cachedEditBillingList = [];
       tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-4">เกิดข้อผิดพลาด: ${res ? res.message : 'ไม่สามารถดึงข้อมูลได้'}</td></tr>`;
       return;
     }
 
     const list = res.data || [];
+    cachedEditBillingList = list; // ✅ เก็บข้อมูลใบวางบิลที่ค้นหาได้ลงตัวแปร Cache
+
     if (list.length === 0) {
       tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-4">ไม่พบข้อมูลใบวางบิลที่ค้นหา</td></tr>`;
       return;
@@ -624,16 +699,21 @@ async function searchBillingNotesForEdit() {
 
     tbody.innerHTML = html;
   } catch (err) {
+    cachedEditBillingList = [];
     tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-4">เกิดข้อผิดพลาด: ${err.message}</td></tr>`;
   }
 }
 
 async function confirmEditBillingNote(billNo) {
+const targetBillItem = (typeof cachedEditBillingList !== 'undefined' && Array.isArray(cachedEditBillingList))
+  ? (cachedEditBillingList.find(x => (x.billNo || x.id) === billNo) || null)
+  : null;
+
   const confirmResult = await Swal.fire({
     title: `ยืนยันการแก้ไขใบวางบิล ${billNo}?`,
     html: `ระบบจะดำเนินการ:<br>
-           1. ลบใบวางบิลเลขที่ <b>${billNo}</b> ออกจากระบบ<br>
-           2. คืนสถานะรายการขายทั้งหมดในบิลนี้กลับเป็น <b>ยังไม่วางบิล</b> เพื่อให้คุณเลือกและออกใบวางบิลใหม่`,
+1. ลบใบวางบิลเลขที่ <b>${billNo}</b> ออกจากระบบ<br>
+2. คืนสถานะรายการขายทั้งหมดในบิลนี้กลับเป็น <b>ยังไม่วางบิล</b> เพื่อให้คุณเลือกและออกใบวางบิลใหม่`,
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#f59e0b',
@@ -655,6 +735,19 @@ async function confirmEditBillingNote(billNo) {
     const res = await revertBillingNoteForEdit(billNo);
 
     if (res && res.success) {
+      // 📝 บันทึก Log ยกเลิกใบวางบิลเพื่อแก้ไข พร้อมเก็บสำเนาใบวางบิลเดิมก่อนถูกลบ
+      if (typeof writeActivityLog === 'function') {
+        await writeActivityLog({
+          module: 'BILLING',
+          functionName: 'confirmEditBillingNote',
+          action: 'REVERT_BILLING_NOTE',
+          docId: billNo,
+          refNo: billNo,
+          summary: `ยกเลิกใบวางบิล ${billNo} เพื่อแก้ไข | ลูกค้า: ${res.buyerName || (targetBillItem ? targetBillItem.buyerName : '-')} | คืนสถานะรายการขาย ${res.updatedCount || 0} รายการ`,
+          beforeData: targetBillItem
+        });
+      }
+
       // ปิด Modal แก้ไขใบวางบิล
       const modalEl = document.getElementById('editBillingModal');
       const modalInstance = bootstrap.Modal.getInstance(modalEl);
@@ -669,9 +762,31 @@ async function confirmEditBillingNote(billNo) {
       // โหลดตารางรายการขายค้างวางบิลใหม่เพื่อให้รายการที่ถูกปลดล็อกแสดงขึ้นมาทันที
       await loadBillingData();
     } else {
+      if (typeof writeActivityLog === 'function') {
+        await writeActivityLog({
+          module: 'BILLING',
+          functionName: 'confirmEditBillingNote',
+          action: 'ERROR_REVERT_BILLING_NOTE',
+          docId: billNo,
+          refNo: billNo,
+          summary: `ยกเลิกใบวางบิล ${billNo} ไม่สำเร็จ: ${res ? res.message : 'ไม่ทราบสาเหตุ'}`,
+          beforeData: targetBillItem
+        });
+      }
       Swal.fire('เกิดข้อผิดพลาด', res ? res.message : 'ไม่สามารถแก้ไขใบวางบิลได้', 'error');
     }
   } catch (err) {
+    if (typeof writeActivityLog === 'function') {
+      await writeActivityLog({
+        module: 'BILLING',
+        functionName: 'confirmEditBillingNote',
+        action: 'ERROR_REVERT_BILLING_NOTE',
+        docId: billNo,
+        refNo: billNo,
+        summary: `เกิดข้อผิดพลาดระบบตอนยกเลิกใบวางบิล ${billNo}: ${err.message || err}`,
+        beforeData: targetBillItem
+      });
+    }
     Swal.fire('เกิดข้อผิดพลาดจากระบบ', err.message || err.toString(), 'error');
   }
 }

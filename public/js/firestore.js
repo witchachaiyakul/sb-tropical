@@ -108,46 +108,77 @@ async function saveBuyerRecord(payload) {
   }
 }
 
-// ==================== 3. SALES NUMBER TRACKER (Doc: 'sales_no/current') ====================
-function parseSalePeriod(dateStr) {
-  let dateObj = new Date();
-  if (dateStr) {
-    const parts = String(dateStr).trim().split(/[\/\-]/);
+
+
+// ==================== 3. UNIFIED PERIOD & NUMBER TRACKER ====================
+function parseDocPeriod(dateStr, docPrefix = 'SB') {
+  let dateObj = null;
+
+  if (dateStr instanceof Date && !isNaN(dateStr.getTime())) {
+    dateObj = dateStr;
+  } else if (dateStr && typeof dateStr.toDate === 'function') {
+    // รองรับ Firestore Timestamp
+    dateObj = dateStr.toDate();
+  } else if (dateStr && typeof dateStr === 'object' && dateStr.seconds) {
+    // รองรับ Plain Timestamp Object
+    dateObj = new Date(dateStr.seconds * 1000);
+  } else if (dateStr) {
+    const cleanStr = String(dateStr).trim().split('T')[0].split(' ')[0];
+    const parts = cleanStr.split(/[\/\-\.]/);
+
     if (parts.length === 3) {
       let p0 = parseInt(parts[0], 10);
       let p1 = parseInt(parts[1], 10);
       let p2 = parseInt(parts[2], 10);
-      let y, m, d;
-      if (parts[0].length === 4) { // YYYY-MM-DD
-        y = p0 > 2400 ? p0 - 543 : p0;
-        m = p1 - 1;
-        d = p2;
-      } else { // DD/MM/YYYY
-        d = p0;
-        m = p1 - 1;
-        y = p2 > 2400 ? p2 - 543 : p2;
+
+      if (!isNaN(p0) && !isNaN(p1) && !isNaN(p2)) {
+        let y, m, d;
+        if (parts[0].length === 4) {
+          // รูปแบบ YYYY/MM/DD
+          y = p0 > 2400 ? p0 - 543 : p0;
+          m = p1 - 1;
+          d = p2;
+        } else {
+          // รูปแบบ DD/MM/YYYY หรือ DD/MM/YY
+          d = p0;
+          m = p1 - 1;
+          if (p2 < 100) {
+            // แปลงปี 2 หลัก (เช่น 69 -> 2569 -> 2026 หรือ 26 -> 2026)
+            const fullYear = 2500 + p2;
+            y = fullYear > 2400 ? fullYear - 543 : 2000 + p2;
+          } else {
+            y = p2 > 2400 ? p2 - 543 : p2;
+          }
+        }
+        dateObj = new Date(y, m, d);
       }
-      dateObj = new Date(y, m, d);
     }
   }
-  if (isNaN(dateObj.getTime())) dateObj = new Date();
+
+  if (!dateObj || isNaN(dateObj.getTime())) {
+    console.warn('⚠️ parseDocPeriod พบค่าวันที่ไม่มาตรฐาน ใช้เวลาปัจจุบันแทน:', dateStr);
+    dateObj = new Date();
+  }
 
   const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
   const yyyy = String(dateObj.getFullYear());
   const yyBE = String(dateObj.getFullYear() + 543).slice(-2);
 
   return {
+    stdDate: `${yyyy}/${mm}/${String(dateObj.getDate()).padStart(2, '0')}`,
     docIdMMYYYY: `${mm}${yyyy}`,           // เช่น "112026"
     sortKeyYYYYMM: Number(`${yyyy}${mm}`), // เช่น 202611
-    prefix: `SB${mm}${yyBE}`               // เช่น "SB1169"
+    prefix: `${docPrefix}${mm}${yyBE}`     // เช่น "SB1169", "SBEXP1169", "SBBS1169", "SBCE1169"
   };
 }
 
+function parseSalePeriod(dateStr) { return parseDocPeriod(dateStr, 'SB'); }
+function parseBillPeriod(dateStr) { return parseDocPeriod(dateStr, 'SBBS'); }
+
 async function getNextSaleNo(dateStr) {
   try {
-    const target = parseSalePeriod(dateStr);
+    const target = parseDocPeriod(dateStr, 'SB');
     const trackerDoc = await db.collection('sales_no').doc(target.docIdMMYYYY).get();
-
     let lastNumber = 0;
 
     if (trackerDoc.exists) {
@@ -161,15 +192,12 @@ async function getNextSaleNo(dateStr) {
       snapshot.forEach(doc => {
         const sNo = String(doc.data().saleNo || '');
         const numPart = parseInt(sNo.replace(target.prefix + '-', ''), 10);
-        if (!isNaN(numPart) && numPart > lastNumber) {
-          lastNumber = numPart;
-        }
+        if (!isNaN(numPart) && numPart > lastNumber) lastNumber = numPart;
       });
     }
 
     const nextNumber = lastNumber + 1;
-    const formattedNumber = String(nextNumber).padStart(4, '0');
-    const fullSaleNo = `${target.prefix}-${formattedNumber}`;
+    const fullSaleNo = `${target.prefix}-${String(nextNumber).padStart(4, '0')}`;
 
     return {
       success: true,
@@ -180,7 +208,6 @@ async function getNextSaleNo(dateStr) {
     };
   } catch (err) {
     console.error("❌ Error in getNextSaleNo:", err);
-    writeSystemLog('ERROR_NEXT_SALE_NO', 'firestore.js', 'getNextSaleNo', { dateStr, error: err.message }, true);
     return { success: false, message: err.message };
   }
 }
@@ -208,22 +235,14 @@ async function updateSalesNoTracker(prefix, number, trackerDocId) {
 // ==================== 4. SALES SYSTEM (Collection: 'sales_records') ====================
 async function saveSaleRecord(data) {
   try {
-    if (!data) {
-      return { success: false, message: 'ไม่พบข้อมูลที่ส่งมาบันทึก' };
-    }
+    if (!data) return { success: false, message: 'ไม่พบข้อมูลที่ส่งมาบันทึก' };
 
     const isUpdate = !!data.docId;
-    const safeNum = (val) => {
-      const n = parseFloat(val);
-      return isNaN(n) ? 0 : n;
-    };
-    const safeInt = (val, defaultVal) => {
-      const n = parseInt(val, 10);
-      return isNaN(n) ? (defaultVal || 0) : n;
-    };
+    const safeNum = (val) => { const n = parseFloat(val); return isNaN(n) ? 0 : n; };
+    const safeInt = (val, defaultVal) => { const n = parseInt(val, 10); return isNaN(n) ? (defaultVal || 0) : n; };
 
-    const formattedDate = String(data.date || '').replace(/-/g, '/').trim();
-    const targetPeriod = parseSalePeriod(formattedDate);
+    const targetPeriod = parseDocPeriod(data.date, 'SB');
+    const formattedDate = targetPeriod.stdDate;
 
     let initialLastNumber = 0;
     if (!isUpdate) {
@@ -254,9 +273,11 @@ async function saveSaleRecord(data) {
     };
 
     let finalSaleNo = data.saleNo || '';
-    let finalDocId = isUpdate ? data.docId : '';
+    let finalDocId = isUpdate ? String(data.docId).trim() : '';
+    let oldSaleData = null;
 
     if (!isUpdate) {
+      // 🔒 สร้างใหม่: ใช้ Transaction จองเลขของเดือนนั้น + เช็ก docId ห้ามซ้ำ
       const trackerRef = db.collection('sales_no').doc(targetPeriod.docIdMMYYYY);
 
       await db.runTransaction(async (transaction) => {
@@ -277,9 +298,7 @@ async function saveSaleRecord(data) {
           saleRef = db.collection('sales_records').doc(candidateDocId);
 
           const existingSale = await transaction.get(saleRef);
-          if (!existingSale.exists) {
-            break;
-          }
+          if (!existingSale.exists) break;
           candidateNum++;
         }
 
@@ -301,48 +320,29 @@ async function saveSaleRecord(data) {
         finalSaleNo = candidateSaleNo;
         finalDocId = candidateDocId;
       });
-
-      // 📝 บันทึก Log การสร้างรายการใหม่สำเร็จ
-      writeSystemLog('CREATE_SALE_SUCCESS', 'firestore.js', 'saveSaleRecord', {
-        docId: finalDocId,
-        saleNo: finalSaleNo,
-        date: formattedDate,
-        buyerName: basePayload.buyerName,
-        totalAmount: basePayload.totalAmount
-      });
     } else {
-      if (!finalDocId) {
-        return { success: false, message: 'รหัสเอกสาร (docId) ไม่ถูกต้อง' };
+      // 🔒 แก้ไข: ใช้ .update() เท่านั้น และห้ามเขียนทับ saleNo / isBilled / isReceiptIssued เดิม
+      if (!finalDocId) return { success: false, message: 'รหัสเอกสาร (docId) ไม่ถูกต้อง' };
+
+      const docRef = db.collection('sales_records').doc(finalDocId);
+      const oldSnap = await docRef.get();
+      if (!oldSnap.exists) {
+        return { success: false, message: `ไม่พบเอกสาร ${finalDocId} ที่ต้องการแก้ไข` };
       }
-      const lockedSaleNo = String(finalDocId).startsWith('SB') ? finalDocId : finalSaleNo;
-      const updatePayload = {
-        ...basePayload,
-        saleNo: lockedSaleNo
-      };
 
-      await db.collection('sales_records').doc(finalDocId).update(updatePayload);
-      finalSaleNo = lockedSaleNo;
+      oldSaleData = oldSnap.data();
+      finalSaleNo = oldSaleData.saleNo || finalDocId; // ล็อกเลขที่บิลตามต้นฉบับในฐานข้อมูล
 
-      // 📝 บันทึก Log การอัปเดตสำเร็จ (เช็กว่า saleNo ที่ส่งมากับที่ล็อกตรงกันไหม)
-      writeSystemLog('UPDATE_SALE_SUCCESS', 'firestore.js', 'saveSaleRecord', {
-        docId: finalDocId,
-        incomingSaleNo: data.saleNo || '',
-        savedSaleNo: finalSaleNo,
-        date: formattedDate,
-        buyerName: basePayload.buyerName,
-        totalAmount: basePayload.totalAmount
-      });
+      await docRef.update(basePayload);
     }
 
-    // ⛽ ตัดสต็อกน้ำมันอัตโนมัติ
-    const finalPayload = { ...basePayload, docId: finalDocId, saleNo: finalSaleNo };
-    const isFuelSale = (finalPayload.itemType === 'น้ำมัน' || (typeof getFuelDocId === 'function' && getFuelDocId(finalPayload.itemName))) && finalPayload.liters > 0;
-    if (isFuelSale && typeof updateStockOnFuelSale === 'function') {
+    // ⛽ ตัดสต็อกน้ำมัน (ส่ง oldSaleData ไปด้วยเพื่อให้คืนสต็อกเดิมก่อนหากเปลี่ยนวันที่หรือชนิดน้ำมัน)
+    const finalPayload = { ...basePayload, saleNo: finalSaleNo, docId: finalDocId };
+    if (typeof updateStockOnFuelSale === 'function') {
       try {
-        await updateStockOnFuelSale(finalPayload, isUpdate);
+        await updateStockOnFuelSale(finalPayload, isUpdate, oldSaleData);
       } catch (stockErr) {
         console.warn("⚠️ บันทึกรายการขายสำเร็จ แต่ตัดสต็อกน้ำมันผิดพลาด:", stockErr);
-        writeSystemLog('ERROR_STOCK_UPDATE', 'firestore.js', 'saveSaleRecord', { docId: finalDocId, error: stockErr.message }, true);
       }
     }
 
@@ -358,18 +358,12 @@ async function saveSaleRecord(data) {
         );
       } catch (buyerErr) {
         console.warn("⚠️ บันทึกรายการขายสำเร็จ แต่อัปเดตยอดสะสมลูกค้าผิดพลาด:", buyerErr);
-        writeSystemLog('ERROR_BUYER_SUMMARY', 'firestore.js', 'saveSaleRecord', { docId: finalDocId, error: buyerErr.message }, true);
       }
     }
 
     return { success: true, message: 'บันทึกสำเร็จ', saleNo: finalSaleNo, docId: finalDocId };
   } catch (err) {
     console.error("❌ Error in saveSaleRecord:", err);
-    writeSystemLog('ERROR_SAVE_SALE', 'firestore.js', 'saveSaleRecord', {
-      docId: data?.docId || '',
-      saleNo: data?.saleNo || '',
-      error: err.message
-    }, true);
     return { success: false, message: err.message };
   }
 }
@@ -426,19 +420,10 @@ async function deleteSaleRecord(docId) {
 
     const saleData = docSnap.data();
 
+    // ลบเอกสารรายการขายหลัก
     await docRef.delete();
 
-    // 📝 บันทึก Log การลบข้อมูล (เก็บข้อมูลเดิมไว้ใน Log เผื่อตรวจสอบย้อนหลัง)
-    writeSystemLog('DELETE_SALE_SUCCESS', 'firestore.js', 'deleteSaleRecord', {
-      docId: docId,
-      deletedData: {
-        saleNo: saleData.saleNo || '',
-        date: saleData.date || '',
-        buyerName: saleData.buyerName || '',
-        totalAmount: saleData.totalAmount || 0
-      }
-    });
-
+    // ⛽ คืนสต็อกน้ำมันย้อนกลับ
     const fuelDocId = getFuelDocId(saleData.itemName || saleData.itemType);
     const liters = Number(saleData.liters || saleData.qty || 0);
     if (fuelDocId && liters > 0) {
@@ -447,7 +432,6 @@ async function deleteSaleRecord(docId) {
 
     return { success: true, message: 'ลบรายการและปรับปรุงสต็อกเรียบร้อย' };
   } catch (err) {
-    writeSystemLog('ERROR_DELETE_SALE', 'firestore.js', 'deleteSaleRecord', { docId, error: err.message }, true);
     return { success: false, message: err.message };
   }
 }
@@ -737,9 +721,14 @@ async function updateSaleSummaries(fuelType, rawDate, liters, cashValue, totalAm
 }
 
 // 3. อัปเดตสต็อกเมื่อทำการขาย (Sale)
-async function updateStockOnFuelSale(saleRecord, isUpdate) {
+async function updateStockOnFuelSale(saleRecord, isUpdate, oldSaleData = null) {
   try {
     if (!saleRecord) return { success: false, message: "ไม่พบข้อมูลรายการ" };
+
+    // กรณีแก้ไข: ให้ถอยสต็อกของรายการเก่าออกก่อนเสมอ (เผื่อเปลี่ยนวันที่ หรือเปลี่ยนชนิดน้ำมัน/ไม่ใช่้น้ำมัน)
+    if (isUpdate && oldSaleData) {
+      await reverseStockOnFuelSale(oldSaleData);
+    }
 
     const docId = getFuelDocId(saleRecord.itemName || saleRecord.itemType);
     if (!docId) return { success: false, message: "ไม่ใช่รายการน้ำมัน" };
@@ -747,26 +736,16 @@ async function updateStockOnFuelSale(saleRecord, isUpdate) {
     const liters = Number(saleRecord.liters || saleRecord.qty || 0);
     if (liters <= 0) return { success: false, message: "จำนวนลิตรไม่ถูกต้อง" };
 
-    // ✅ ยึด docId หรือ saleNo ที่ถูกล็อกแล้วเป็นหลัก ป้องกันการตัดสต็อกซ้ำหรือทับบิลอื่น
-    const rawSaleNo = String(saleRecord.docId || saleRecord.saleNo || '').trim();
+    const rawSaleNo = String(saleRecord.saleNo || saleRecord.docId || '').trim();
     const cleanSaleNo = safeDocId(rawSaleNo);
     const recDate = toStandardYYYYMMDD(saleRecord.date);
     const paymentType = String(saleRecord.paymentType || 'เงินสด').trim();
 
     const isCash = paymentType.includes('เงินสด');
     const totalAmount = Number(saleRecord.totalAmount || 0);
-    const cashValue = isCash ? Number(saleRecord.totalAmount || 0) : 0;
+    const cashValue = isCash ? totalAmount : 0;
 
     const exportDocRef = db.collection('oil_stock').doc(docId).collection('exports').doc(cleanSaleNo);
-    let oldLiters = 0, oldCashValue = 0, oldTotalAmount = 0;
-    if (isUpdate) {
-      const oldSnap = await exportDocRef.get();
-      if (oldSnap.exists) {
-        oldLiters = Number(oldSnap.data().liters || 0);
-        oldCashValue = Number(oldSnap.data().cash || 0);
-        oldTotalAmount = Number(oldSnap.data().amount || oldSnap.data().cash || 0);
-      }
-    }
 
     await exportDocRef.set({
       saleNo: rawSaleNo,
@@ -778,7 +757,8 @@ async function updateStockOnFuelSale(saleRecord, isUpdate) {
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
-    await updateSaleSummaries(docId, recDate, liters, cashValue, totalAmount, oldLiters, oldCashValue, oldTotalAmount, isUpdate);
+    // บวกยอดใหม่เข้าไป (isUpdate = false เพราะถอยยอดเก่าออกไปแล้วด้านบน)
+    await updateSaleSummaries(docId, recDate, liters, cashValue, totalAmount, 0, 0, 0, false);
     await updateOilStockParentSummary(docId);
 
     return { success: true };
@@ -879,32 +859,33 @@ async function updateImportSummaries(fuelType, rawDate, liters, amount, oldLiter
 }
 
 // 6. อัปเดตสต็อกเมื่อทำการซื้อน้ำมัน (Purchase / Expense)
-async function updateStockOnFuelPurchase(expenseRecord, isUpdate) {
+async function updateStockOnFuelPurchase(expenseRecord, isUpdate, oldExpenseData = null) {
   try {
     if (!expenseRecord) return { success: false, message: "ไม่พบข้อมูลรายการ" };
 
+    // กรณีแก้ไข: ถอยยอดซื้อเดิมออกก่อนเสมอ
+    if (isUpdate && oldExpenseData) {
+      await reverseStockOnFuelPurchase(oldExpenseData);
+    }
+
+    const categoryVal = String(expenseRecord.category || '').trim();
+    if (categoryVal !== 'ซื้อน้ำมัน ท่าทอง' && categoryVal !== 'ซื้อน้ำมัน P.C. Siam') {
+      return { success: false, message: "ไม่ใช่รายการซื้อน้ำมัน" };
+    }
+
     const docId = getFuelDocId(expenseRecord.itemName || expenseRecord.category);
-    if (!docId) return { success: false, message: "ไม่ใช่รายการน้ำมัน" };
+    if (!docId) return { success: false, message: "ไม่พบชนิดน้ำมัน" };
 
     const liters = Number(expenseRecord.liters || expenseRecord.qty || 0);
     if (liters <= 0) return { success: false, message: "จำนวนลิตรไม่ถูกต้อง" };
 
-    const rawExpenseNo = String(expenseRecord.expenseNo || expenseRecord.no || '').trim();
+    const rawExpenseNo = String(expenseRecord.expenseNo || expenseRecord.docId || '').trim();
     const cleanExpenseNo = safeDocId(rawExpenseNo);
     const recDate = toStandardYYYYMMDD(expenseRecord.date);
     const pricePerLiter = Number(expenseRecord.pricePerLiter || 0);
     const amount = Number(expenseRecord.amount || expenseRecord.totalWithVat || 0);
 
     const importDocRef = db.collection('oil_stock').doc(docId).collection('imports').doc(cleanExpenseNo);
-    let oldLiters = 0, oldAmount = 0;
-
-    if (isUpdate) {
-      const oldSnap = await importDocRef.get();
-      if (oldSnap.exists) {
-        oldLiters = Number(oldSnap.data().liters || 0);
-        oldAmount = Number(oldSnap.data().amount || 0);
-      }
-    }
 
     await importDocRef.set({
       expenseNo: rawExpenseNo,
@@ -915,7 +896,7 @@ async function updateStockOnFuelPurchase(expenseRecord, isUpdate) {
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
-    await updateImportSummaries(docId, recDate, liters, amount, oldLiters, oldAmount, isUpdate);
+    await updateImportSummaries(docId, recDate, liters, amount, 0, 0, false);
     await updateOilStockParentSummary(docId);
 
     return { success: true };
@@ -1052,40 +1033,6 @@ async function getBuyerByName(buyerName) {
   } catch (err) {
     return { success: false, message: err.message, data: {} };
   }
-}
-
-// ตัวช่วยแปลงวันที่ใบวางบิลเป็นรหัสงวด {mmyyyy} และ Prefix (เช่น SBBS1169)
-function parseBillPeriod(dateStr) {
-  let dateObj = new Date();
-  if (dateStr) {
-    const parts = String(dateStr).trim().split(/[\/\-]/);
-    if (parts.length === 3) {
-      let p0 = parseInt(parts[0], 10);
-      let p1 = parseInt(parts[1], 10);
-      let p2 = parseInt(parts[2], 10);
-      let y, m, d;
-      if (parts[0].length === 4) { // YYYY/MM/DD
-        y = p0 > 2400 ? p0 - 543 : p0;
-        m = p1 - 1;
-        d = p2;
-      } else { // DD/MM/YYYY
-        d = p0;
-        m = p1 - 1;
-        y = p2 > 2400 ? p2 - 543 : p2;
-      }
-      dateObj = new Date(y, m, d);
-    }
-  }
-  if (isNaN(dateObj.getTime())) dateObj = new Date();
-
-  const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
-  const yyyy = String(dateObj.getFullYear());
-  const yyBE = String(dateObj.getFullYear() + 543).slice(-2);
-
-  return {
-    docIdMMYYYY: `${mm}${yyyy}`, // เช่น "112026"
-    prefix: `SBBS${mm}${yyBE}`     // เช่น "SBBS1169"
-  };
 }
 
 // 🟢 3. รันเลขที่ใบวางบิลถัดไปแยกตามเดือน (Doc: 'bill_no/{mmyyyy}') รองรับย้อนหลังข้ามเดือน
@@ -1350,39 +1297,54 @@ async function revertBillingNoteForEdit(billNo) {
 // 🟢 1. สร้างเลขที่บิลค่าใช้จ่ายถัดไป (เช่น SBEXP1069-0001)
 async function getNextExpenseNo(dateStr) {
   try {
-    const stdDate = toStandardYYYYMMDD(dateStr || new Date().toISOString().split('T')[0]);
-    const parts = stdDate.split('/');
-    
-    let month = String(new Date().getMonth() + 1).padStart(2, '0');
-    let yearBE = String(new Date().getFullYear() + 543).slice(-2);
+    const target = parseDocPeriod(dateStr, 'SBEXP');
+    const trackerDoc = await db.collection('expense_no').doc(target.docIdMMYYYY).get();
+    let lastNumber = 0;
 
-    if (parts.length === 3) {
-      month = String(parts[1]).padStart(2, '0');
-      let yr = parseInt(parts[0], 10);
-      if (yr < 2400) yr += 543;
-      yearBE = String(yr).slice(-2);
-    }
-
-    const currentPrefix = `SBEXP${month}${yearBE}`;
-
-    const trackerDoc = await db.collection('expense_no').doc('current').get();
-    let lastPrefix = "", lastNumber = 0;
     if (trackerDoc.exists) {
-      const data = trackerDoc.data();
-      lastPrefix = data.last_prefix || "";
-      lastNumber = Number(data.last_number || 0);
+      lastNumber = Number(trackerDoc.data().last_number || 0);
+    } else {
+      const snapshot = await db.collection('expense_records')
+        .where('expenseNo', '>=', target.prefix + '-')
+        .where('expenseNo', '<=', target.prefix + '-\uf8ff')
+        .get();
+
+      snapshot.forEach(doc => {
+        const eNo = String(doc.data().expenseNo || '');
+        const numPart = parseInt(eNo.replace(target.prefix + '-', ''), 10);
+        if (!isNaN(numPart) && numPart > lastNumber) lastNumber = numPart;
+      });
     }
-    const nextNumber = (lastPrefix === currentPrefix) ? lastNumber + 1 : 1;
-    const fullExpenseNo = `${currentPrefix}-${String(nextNumber).padStart(4, '0')}`;
-    return { success: true, expenseNo: fullExpenseNo, prefix: currentPrefix, number: nextNumber };
+
+    const nextNumber = lastNumber + 1;
+    const fullExpenseNo = `${target.prefix}-${String(nextNumber).padStart(4, '0')}`;
+    return {
+      success: true,
+      expenseNo: fullExpenseNo,
+      prefix: target.prefix,
+      number: nextNumber,
+      trackerDocId: target.docIdMMYYYY
+    };
   } catch (err) {
     return { success: false, message: err.message };
   }
 }
 
-async function updateExpenseNoTracker(prefix, number) {
+async function updateExpenseNoTracker(prefix, number, trackerDocId) {
   try {
-    await db.collection('expense_no').doc('current').set({ last_prefix: prefix, last_number: number }, { merge: true });
+    let docKey = trackerDocId;
+    if (!docKey && prefix && prefix.length === 9) {
+      const mm = prefix.slice(5, 7);
+      const yyyy = String(2500 + parseInt(prefix.slice(7, 9), 10) - 543);
+      docKey = `${mm}${yyyy}`;
+    }
+    if (!docKey) return;
+
+    await db.collection('expense_no').doc(docKey).set({
+      last_prefix: prefix,
+      last_number: number,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
   } catch (e) {
     console.error("Error updating expense tracker:", e);
   }
@@ -1394,24 +1356,20 @@ async function saveExpenseRecord(data) {
     if (!data) return { success: false, message: 'ไม่พบข้อมูลที่ส่งมาบันทึก' };
 
     const isUpdate = !!data.docId;
-    let expenseNo = data.expenseNo || '';
-    let trackerPrefix = '', trackerNumber = 0;
-
-    if (!isUpdate) {
-      const expNoInfo = await getNextExpenseNo(data.date);
-      if (expNoInfo && expNoInfo.success) {
-        expenseNo = expNoInfo.expenseNo;
-        trackerPrefix = expNoInfo.prefix;
-        trackerNumber = expNoInfo.number;
-      }
-    }
-
-    const docId = isUpdate ? data.docId : expenseNo.replace(/\//g, "-");
-    const formattedDate = toStandardYYYYMMDD(data.date);
+    const targetPeriod = parseDocPeriod(data.date, 'SBEXP');
+    const formattedDate = targetPeriod.stdDate;
     const formattedTransferDate = data.transferDate ? toStandardYYYYMMDD(data.transferDate) : '';
 
-    const payload = {
-      expenseNo: expenseNo,
+    let initialLastNumber = 0;
+    if (!isUpdate) {
+      const expNoInfo = await getNextExpenseNo(formattedDate);
+      if (!expNoInfo || !expNoInfo.success) {
+        return { success: false, message: 'ไม่สามารถสร้างเลขที่ใบค่าใช้จ่ายได้' };
+      }
+      initialLastNumber = expNoInfo.number - 1;
+    }
+
+    const basePayload = {
       date: formattedDate,
       category: data.category || '',
       itemName: data.itemName || '',
@@ -1430,32 +1388,80 @@ async function saveExpenseRecord(data) {
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
 
+    let finalExpenseNo = data.expenseNo || '';
+    let finalDocId = isUpdate ? String(data.docId).trim() : '';
+    let oldExpenseData = null;
+
     if (!isUpdate) {
-      payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-      payload.isRequisition = false;
-      payload.requisitionNo = '';
-      payload.transferNo = '';
-    }
+      const trackerRef = db.collection('expense_no').doc(targetPeriod.docIdMMYYYY);
 
-    await db.collection('expense_records').doc(docId).set(payload, { merge: true });
-
-    if (!isUpdate && trackerPrefix && trackerNumber) {
-      await updateExpenseNoTracker(trackerPrefix, trackerNumber);
-    }
-
-    // ⛽ หากเป็นรายการซื้อน้ำมัน ให้ส่งไปอัปเดตสต็อกขาเข้า
-    const categoryVal = String(payload.category || '').trim();
-    if ((categoryVal === 'ซื้อน้ำมัน ท่าทอง' || categoryVal === 'ซื้อน้ำมัน P.C. Siam') && payload.liters > 0) {
-      if (typeof updateStockOnFuelPurchase === 'function') {
-        try {
-          await updateStockOnFuelPurchase(payload, isUpdate);
-        } catch (stockErr) {
-          console.warn("⚠️ บันทึกค่าใช้จ่ายสำเร็จ แต่อัปเดตสต็อกน้ำมันเข้าผิดพลาด:", stockErr);
+      await db.runTransaction(async (transaction) => {
+        const trackerDoc = await transaction.get(trackerRef);
+        let currentNum = initialLastNumber;
+        if (trackerDoc.exists) {
+          currentNum = Number(trackerDoc.data().last_number || 0);
         }
+
+        let candidateNum = currentNum + 1;
+        let candidateExpNo = '';
+        let candidateDocId = '';
+        let expRef = null;
+
+        while (true) {
+          candidateExpNo = `${targetPeriod.prefix}-${String(candidateNum).padStart(4, '0')}`;
+          candidateDocId = candidateExpNo.replace(/\//g, "-");
+          expRef = db.collection('expense_records').doc(candidateDocId);
+
+          const existingExp = await transaction.get(expRef);
+          if (!existingExp.exists) break;
+          candidateNum++;
+        }
+
+        const newPayload = {
+          ...basePayload,
+          expenseNo: candidateExpNo,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          isRequisition: false,
+          requisitionNo: '',
+          transferNo: ''
+        };
+
+        transaction.set(expRef, newPayload);
+        transaction.set(trackerRef, {
+          last_prefix: targetPeriod.prefix,
+          last_number: candidateNum,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        finalExpenseNo = candidateExpNo;
+        finalDocId = candidateDocId;
+      });
+    } else {
+      if (!finalDocId) return { success: false, message: 'รหัสเอกสาร (docId) ไม่ถูกต้อง' };
+
+      const docRef = db.collection('expense_records').doc(finalDocId);
+      const oldSnap = await docRef.get();
+      if (!oldSnap.exists) {
+        return { success: false, message: `ไม่พบเอกสาร ${finalDocId} ที่ต้องการแก้ไข` };
+      }
+
+      oldExpenseData = oldSnap.data();
+      finalExpenseNo = oldExpenseData.expenseNo || finalDocId;
+
+      await docRef.update(basePayload);
+    }
+
+    // ⛽ อัปเดตสต็อกน้ำมันขาเข้า (รองรับทั้งสร้างใหม่ แก้ไข เปลี่ยนวันที่ และเปลี่ยนชนิดน้ำมัน)
+    const finalPayload = { ...basePayload, expenseNo: finalExpenseNo, docId: finalDocId };
+    if (typeof updateStockOnFuelPurchase === 'function') {
+      try {
+        await updateStockOnFuelPurchase(finalPayload, isUpdate, oldExpenseData);
+      } catch (stockErr) {
+        console.warn("⚠️ บันทึกค่าใช้จ่ายสำเร็จ แต่อัปเดตสต็อกน้ำมันเข้าผิดพลาด:", stockErr);
       }
     }
 
-    return { success: true, message: 'บันทึกสำเร็จ', expenseNo: expenseNo, docId: docId };
+    return { success: true, message: 'บันทึกสำเร็จ', expenseNo: finalExpenseNo, docId: finalDocId };
   } catch (err) {
     console.error("❌ Error in saveExpenseRecord:", err);
     return { success: false, message: err.message };
@@ -1664,33 +1670,34 @@ async function getExpenseRecordsForClaim(startDateStr, endDateStr, currentStatus
 // 🟢 2. รันเลขที่ใบตั้งเบิกถัดไป (เช่น SBCE1169-0001)
 async function getNextClaimNo(dateStr) {
   try {
-    const stdDate = toStandardYYYYMMDD(dateStr || new Date().toISOString().split('T')[0]);
-    const parts = stdDate.split('/');
-    
-    let month = String(new Date().getMonth() + 1).padStart(2, '0');
-    let yearBE = String(new Date().getFullYear() + 543).slice(-2);
-
-    if (parts.length === 3) {
-      month = String(parts[1]).padStart(2, '0');
-      let yr = parseInt(parts[0], 10);
-      if (yr < 2400) yr += 543;
-      yearBE = String(yr).slice(-2);
-    }
-
-    const prefix = `SBCE${month}${yearBE}`;
-
-    const trackerDoc = await db.collection('claim_no').doc('current').get();
-    let lastPrefix = "", lastNumber = 0;
+    const target = parseDocPeriod(dateStr, 'SBCE');
+    const trackerDoc = await db.collection('claim_no').doc(target.docIdMMYYYY).get();
+    let lastNumber = 0;
 
     if (trackerDoc.exists) {
-      const data = trackerDoc.data();
-      lastPrefix = data.last_prefix || "";
-      lastNumber = Number(data.last_number || 0);
+      lastNumber = Number(trackerDoc.data().last_number || 0);
+    } else {
+      const snapshot = await db.collection('claim_records')
+        .where('claimNo', '>=', target.prefix + '-')
+        .where('claimNo', '<=', target.prefix + '-\uf8ff')
+        .get();
+
+      snapshot.forEach(doc => {
+        const cNo = String(doc.data().claimNo || '');
+        const numPart = parseInt(cNo.replace(target.prefix + '-', ''), 10);
+        if (!isNaN(numPart) && numPart > lastNumber) lastNumber = numPart;
+      });
     }
 
-    const nextNumber = (lastPrefix === prefix) ? lastNumber + 1 : 1;
-    const fullClaimNo = `${prefix}-${String(nextNumber).padStart(4, '0')}`;
-    return { success: true, claimNo: fullClaimNo, prefix: prefix, number: nextNumber };
+    const nextNumber = lastNumber + 1;
+    const fullClaimNo = `${target.prefix}-${String(nextNumber).padStart(4, '0')}`;
+    return {
+      success: true,
+      claimNo: fullClaimNo,
+      prefix: target.prefix,
+      number: nextNumber,
+      trackerDocId: target.docIdMMYYYY
+    };
   } catch (err) {
     console.error("❌ Error in getNextClaimNo:", err);
     return { success: false, message: err.message, claimNo: 'SBCE-0001' };
@@ -1704,44 +1711,70 @@ async function confirmClaim(expenseIds, claimDateStr, claimData) {
       return { success: false, message: 'กรุณาเลือกอย่างน้อย 1 รายการ' };
     }
 
-    const claimNoInfo = await getNextClaimNo(claimDateStr);
-    const claimNo = claimNoInfo.claimNo;
-
-    const payload = {
-      claimNo: claimNo,
-      claimDate: claimDateStr,
-      totalAmount: Number(claimData.grandTotal || 0),
-      grandTotal: Number(claimData.grandTotal || 0),
-      itemCount: expenseIds.length,
-      expenseNos: claimData.expenseNos || [],
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
-
-    // 1. บันทึกเอกสารใบตั้งเบิกลง collection 'claim_records' (ตรงตามระบบเดิม)
-    await db.collection('claim_records').doc(claimNo.replace(/\//g, "-")).set(payload);
-
-    // 2. อัปเดตตัวรันเลขใน collection 'claim_no'
-    if (claimNoInfo.prefix && claimNoInfo.number) {
-      await db.collection('claim_no').doc('current').set({
-        last_prefix: claimNoInfo.prefix,
-        last_number: claimNoInfo.number
-      }, { merge: true });
+    const targetPeriod = parseDocPeriod(claimDateStr, 'SBCE');
+    const nextInfo = await getNextClaimNo(claimDateStr);
+    if (!nextInfo || !nextInfo.success) {
+      return { success: false, message: 'ไม่สามารถสร้างเลขที่ใบตั้งเบิกได้' };
     }
+    const initialLastNumber = nextInfo.number - 1;
+    const trackerRef = db.collection('claim_no').doc(targetPeriod.docIdMMYYYY);
+    let finalClaimNo = '';
 
-    // 3. อัปเดตรายการค่าใช้จ่ายใน 'expense_records' (บันทึกทั้ง claimNo และ requisitionNo)
+    await db.runTransaction(async (transaction) => {
+      const trackerDoc = await transaction.get(trackerRef);
+      let currentNum = initialLastNumber;
+      if (trackerDoc.exists) {
+        currentNum = Number(trackerDoc.data().last_number || 0);
+      }
+
+      let candidateNum = currentNum + 1;
+      let candidateClaimNo = '';
+      let candidateDocId = '';
+      let claimRef = null;
+
+      while (true) {
+        candidateClaimNo = `${targetPeriod.prefix}-${String(candidateNum).padStart(4, '0')}`;
+        candidateDocId = candidateClaimNo.replace(/\//g, "-");
+        claimRef = db.collection('claim_records').doc(candidateDocId);
+
+        const existingClaim = await transaction.get(claimRef);
+        if (!existingClaim.exists) break;
+        candidateNum++;
+      }
+
+      const payload = {
+        claimNo: candidateClaimNo,
+        claimDate: claimDateStr,
+        totalAmount: Number(claimData.grandTotal || 0),
+        grandTotal: Number(claimData.grandTotal || 0),
+        itemCount: expenseIds.length,
+        expenseNos: claimData.expenseNos || [],
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
+
+      transaction.set(claimRef, payload);
+      transaction.set(trackerRef, {
+        last_prefix: targetPeriod.prefix,
+        last_number: candidateNum,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      finalClaimNo = candidateClaimNo;
+    });
+
     const batch = db.batch();
     expenseIds.forEach(id => {
       const ref = db.collection('expense_records').doc(String(id));
       batch.update(ref, {
         isRequisition: true,
-        claimNo: claimNo,
-        requisitionNo: claimNo,
+        claimNo: finalClaimNo,
+        requisitionNo: finalClaimNo,
         requisitionAt: firebase.firestore.FieldValue.serverTimestamp()
       });
     });
     await batch.commit();
 
-    return { success: true, claimNo: claimNo, message: 'บันทึกตั้งเบิกสำเร็จ' };
+    return { success: true, claimNo: finalClaimNo, message: 'บันทึกตั้งเบิกสำเร็จ' };
   } catch (err) {
     console.error("❌ Error in confirmClaim:", err);
     return { success: false, message: err.message };
@@ -2394,6 +2427,14 @@ async function updateExpenseTransferStatusInFirestore(docId, transferAccount, tr
   }
 }
 
+function parseMonthKey(dateStr) {
+  const std = toStandardYYYYMMDD(dateStr);
+  if (!std) return null;
+  const parts = std.split('/');
+  if (parts.length < 2) return null;
+  return `${parts[0]}-${parts[1]}`; // คืนค่า YYYY-MM
+}
+
 async function recalculateMonthlySummaryInFirestore(dateStr) {
   try {
     const ym = parseMonthKey(dateStr);
@@ -2585,12 +2626,6 @@ async function getCustomerSalesReportFromFirestore() {
   }
 }
 
-/**
- * 🟢 ดึงข้อมูลค่าใช้จ่ายจาก Firestore ตามช่วงวันที่ (startDateStr ถึง endDateStr)
- */
-/**
- * 🟢 ดึงข้อมูลค่าใช้จ่ายจาก Firestore พร้อมฟิลด์สำหรับการกรองการตั้งเบิก/โอนจ่าย
- */
 async function getExpenseRecordsByDateRangeFromFirestore(startDateStr, endDateStr) {
   try {
     // ดึงเอกสารทั้งหมดจาก expense_records แล้วมากรองวันที่บน Client-side เพื่อรองรับทั้งฟอร์แมต YYYY-MM-DD และ YYYY/MM/DD
@@ -2627,20 +2662,82 @@ async function getExpenseRecordsByDateRangeFromFirestore(startDateStr, endDateSt
   }
 }
 
-// ==================== SYSTEM AUDIT LOG (Collection: 'log') ====================
-async function writeSystemLog(action, sourceFile, functionName, details = {}, isError = false) {
+// ==================== ACTIVITY AUDIT LOG SYSTEM ====================
+function getCurrentActor() {
   try {
-    if (typeof db === 'undefined' || !db) return;
-    await db.collection('log').add({
-      action: action,                 // เช่น 'EDIT_OPEN', 'SUBMIT_START', 'DB_UPDATE', 'ERROR'
-      sourceFile: sourceFile,         // 'sale-record.js' หรือ 'firestore.js'
-      functionName: functionName,     // ชื่อฟังก์ชัน
-      isError: isError,               // true ถ้าเกิด Error
-      user: window.currentUser ? window.currentUser.username : 'system',
-      details: details,               // ข้อมูลละเอียด (docId, saleNo, payload, error)
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    if (window.currentUser && (window.currentUser.username || window.currentUser.name)) {
+      return {
+        username: window.currentUser.username || window.currentUser.name,
+        name: window.currentUser.name || window.currentUser.username,
+        role: window.currentUser.role || 'staff'
+      };
+    }
+    const raw = localStorage.getItem('user') || sessionStorage.getItem('user') || localStorage.getItem('currentUser');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && (parsed.username || parsed.name)) {
+        return {
+          username: parsed.username || parsed.name,
+          name: parsed.name || parsed.username,
+          role: parsed.role || 'staff'
+        };
+      }
+    }
+  } catch (e) {}
+  return { username: 'unknown', name: 'ไม่ระบุผู้ใช้งาน', role: 'unknown' };
+}
+
+async function writeActivityLog({
+  module = 'GENERAL',
+  functionName = '',
+  action = '',
+  docId = '',
+  refNo = '',
+  summary = '',
+  beforeData = null,
+  afterData = null
+}) {
+  try {
+    const actor = getCurrentActor();
+    const now = new Date();
+
+    // สร้างรูปแบบ yyyymmdd-HHmmss (ค.ศ.) สำหรับใช้เป็นชื่อ Document ID
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const hh = String(now.getHours()).padStart(2, '0');
+    const min = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    const randSuffix = Math.random().toString(36).substring(2, 5); // กันซ้ำกรณีเกิดพร้อมกันใน 1 วินาที
+
+    const customLogDocId = `${yyyy}${mm}${dd}-${hh}${min}${ss}-${randSuffix}`;
+
+    const dateStr = now.toLocaleString('th-TH', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
     });
-  } catch (logErr) {
-    console.warn("⚠️ ไม่สามารถบันทึก Log ลง Firestore ได้:", logErr);
+
+    await db.collection('activity_logs').doc(customLogDocId).set({
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      dateStr: dateStr,
+      module: module,
+      functionName: functionName,
+      action: action,
+      docId: String(docId || ''),
+      refNo: String(refNo || ''),
+      actorUsername: actor.username,
+      actorName: actor.name,
+      actorRole: actor.role,
+      summary: summary,
+      beforeData: beforeData || null,
+      afterData: afterData || null,
+      device: /Mobile|Android|iPhone/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
+    });
+  } catch (err) {
+    console.warn('⚠️ writeActivityLog failed:', err);
   }
 }

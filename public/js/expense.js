@@ -30,7 +30,17 @@ document.addEventListener('DOMContentLoaded', function () {
   // ผูก Event บันทึกฟอร์ม
   const expFormEl = document.getElementById('expenseForm');
   if (expFormEl) {
+    expFormEl.removeEventListener('submit', handleExpenseFormSubmit);
     expFormEl.addEventListener('submit', handleExpenseFormSubmit);
+  }
+
+  // 🔒 ล้างค่าฟอร์มอัตโนมัติเมื่อปิด Modal (ป้องกัน editExpenseDocId ค้าง)
+  const expModalEl = document.getElementById('expenseFormModal');
+  if (expModalEl && !expModalEl.dataset.resetBound) {
+    expModalEl.addEventListener('hidden.bs.modal', function () {
+      resetExpenseForm();
+    });
+    expModalEl.dataset.resetBound = 'true';
   }
 });
 
@@ -135,6 +145,7 @@ function initAllMonthYearFilters() {
 
 // ==================== UI & FORM CONTROLS ====================
 async function updateExpenseNoPreview() {
+  if (document.getElementById('editExpenseDocId')?.value) return;
   const selectedDate = document.getElementById('expenseDate').value;
   const res = await getNextExpenseNo(selectedDate);
   if (res && res.success && res.expenseNo) {
@@ -380,6 +391,7 @@ function renderExpenseTable(data) {
 
     const reqBadge = isReq ? `<span class="badge bg-info text-dark">ตั้งเบิกแล้ว</span>` : `<span class="badge bg-light text-muted border">ยังไม่ตั้งเบิก</span>`;
     const payBadge = isPay ? `<span class="badge bg-success me-1">โอนจ่ายแล้ว</span>` : `<span class="badge bg-warning text-dark me-1">ยังไม่โอนจ่าย</span>`;
+    const displayNet = parseFloat(item.totalWithVat || item.amount || 0);
 
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -387,7 +399,7 @@ function renderExpenseTable(data) {
       <td>${formatDateThai(item.date)}</td>
       <td><span class="badge bg-secondary">${item.category || '-'}</span></td>
       <td class="fw-bold">${item.payeeName || '-'}</td>
-      <td class="text-end fw-bold text-danger">${parseFloat(item.amount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td class="text-end fw-bold text-danger">${displayNet.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       <td class="text-center"><span class="badge ${item.paymentType === 'เงินสด' ? 'bg-success' : 'bg-primary'}">${item.paymentType || 'เงินสด'}</span></td>
       <td class="text-center">${payBadge}${reqBadge}</td>
       <td class="small text-muted">${item.remarks || '-'}</td>
@@ -421,8 +433,13 @@ async function handleExpenseFormSubmit(e) {
   const rawDate = document.getElementById('expenseDate').value;
   const rawTransferDate = document.getElementById('expTransferDate') ? document.getElementById('expTransferDate').value : '';
 
+  const editDocId = document.getElementById('editExpenseDocId').value;
+  const isUpdate = !!editDocId;
+  const beforeItem = isUpdate ? (rawExpenseData.find(x => String(x.id) === String(editDocId)) || null) : null;
+  const actor = typeof getCurrentActor === 'function' ? getCurrentActor() : { username: 'system' };
+
   const payload = {
-    docId: document.getElementById('editExpenseDocId').value,
+    docId: editDocId,
     expenseNo: document.getElementById('expenseNo').value.trim(),
     date: rawDate,
     category: categoryVal,
@@ -438,7 +455,7 @@ async function handleExpenseFormSubmit(e) {
     transferAccount: paymentType === 'เงินโอน' ? document.getElementById('expTransferAccount').value : '',
     transferDate: rawTransferDate,
     remarks: document.getElementById('expenseRemarks').value.trim(),
-    recordedBy: (window.currentUser ? window.currentUser.username : 'system')
+    recordedBy: actor.username
   };
 
   if (typeof Swal !== 'undefined') {
@@ -448,23 +465,66 @@ async function handleExpenseFormSubmit(e) {
   try {
     const res = await saveExpenseRecord(payload);
     if (res && res.success) {
-      // 🟢 ปิด Modal ฟอร์มบันทึกหลังบันทึกสำเร็จ
+      const savedExpNo = res.expenseNo || payload.expenseNo;
+      const savedDocId = res.docId || editDocId || savedExpNo;
+
+      // 📝 บันทึก Log สร้างใหม่ / แก้ไขรายการค่าใช้จ่าย
+      if (typeof writeActivityLog === 'function') {
+        const oilDetail = isOilCategory ? ` (${itemName} ${payload.liters} ลิตร)` : '';
+        await writeActivityLog({
+          module: 'EXPENSE',
+          functionName: 'handleExpenseFormSubmit',
+          action: isUpdate ? 'UPDATE_EXPENSE' : 'CREATE_EXPENSE',
+          docId: savedDocId,
+          refNo: savedExpNo,
+          summary: isUpdate
+            ? `แก้ไขรายการค่าใช้จ่าย ${savedExpNo} | หมวด: ${categoryVal}${oilDetail} | ผู้รับเงิน: ${payload.payeeName || '-'} | ยอดสุทธิ ${payload.totalWithVat.toLocaleString('th-TH')} บาท`
+            : `บันทึกรายการค่าใช้จ่ายใหม่ ${savedExpNo} | หมวด: ${categoryVal}${oilDetail} | ผู้รับเงิน: ${payload.payeeName || '-'} | ยอดสุทธิ ${payload.totalWithVat.toLocaleString('th-TH')} บาท`,
+          beforeData: beforeItem,
+          afterData: { ...payload, expenseNo: savedExpNo, docId: savedDocId }
+        });
+      }
+
       hideExpenseModal();
 
       if (typeof Swal !== 'undefined') {
         Swal.fire({ 
           icon: 'success', 
           title: 'บันทึกสำเร็จ!', 
-          text: 'บันทึกข้อมูลค่าใช้จ่ายเรียบร้อยแล้ว', 
+          text: `บันทึกข้อมูลค่าใช้จ่ายเลขที่ ${savedExpNo} เรียบร้อยแล้ว`, 
           confirmButtonColor: '#005f73' 
         });
       }
       resetExpenseForm();
       loadExpenseData();
     } else {
+      if (typeof writeActivityLog === 'function') {
+        await writeActivityLog({
+          module: 'EXPENSE',
+          functionName: 'handleExpenseFormSubmit',
+          action: isUpdate ? 'ERROR_UPDATE_EXPENSE' : 'ERROR_CREATE_EXPENSE',
+          docId: editDocId,
+          refNo: payload.expenseNo,
+          summary: `บันทึกรายการค่าใช้จ่ายไม่สำเร็จ (${payload.expenseNo}): ${res ? res.message : 'ไม่ทราบสาเหตุ'}`,
+          beforeData: beforeItem,
+          afterData: payload
+        });
+      }
       if (typeof Swal !== 'undefined') Swal.fire('ข้อผิดพลาด', res ? res.message : 'ไม่สามารถบันทึกได้', 'error');
     }
   } catch (err) {
+    if (typeof writeActivityLog === 'function') {
+      await writeActivityLog({
+        module: 'EXPENSE',
+        functionName: 'handleExpenseFormSubmit',
+        action: isUpdate ? 'ERROR_UPDATE_EXPENSE' : 'ERROR_CREATE_EXPENSE',
+        docId: editDocId,
+        refNo: payload.expenseNo,
+        summary: `เกิดข้อผิดพลาดระบบตอนบันทึกรายการค่าใช้จ่าย (${payload.expenseNo}): ${err.message || err}`,
+        beforeData: beforeItem,
+        afterData: payload
+      });
+    }
     if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาดจาก Server', err.toString(), 'error');
   }
 }
@@ -472,6 +532,19 @@ async function handleExpenseFormSubmit(e) {
 function editExpenseRecord(id) {
   const item = rawExpenseData.find(x => String(x.id) === String(id));
   if (!item) return;
+
+  // 📝 บันทึก Log เปิดหน้าต่างแก้ไขรายการค่าใช้จ่าย
+  if (typeof writeActivityLog === 'function') {
+    writeActivityLog({
+      module: 'EXPENSE',
+      functionName: 'editExpenseRecord',
+      action: 'OPEN_EDIT_EXPENSE',
+      docId: item.id,
+      refNo: item.expenseNo || item.id,
+      summary: `เปิดหน้าต่างแก้ไขค่าใช้จ่าย ${item.expenseNo || item.id} (หมวด: ${item.category || '-'})`,
+      beforeData: item
+    });
+  }
 
   document.getElementById('editExpenseDocId').value = item.id;
   document.getElementById('expenseNo').value = item.expenseNo || '';
@@ -494,7 +567,8 @@ function editExpenseRecord(id) {
   document.getElementById('expenseAmount').value = formatNumWithComma(item.amount, 2);
 
   if (item.vatAmount > 0) {
-    if (Math.abs((item.amountBeforeVat + item.vatAmount) - item.amount) < 0.05) {
+    const totalCheck = parseFloat(item.totalWithVat || item.amount || 0);
+    if (Math.abs((item.amountBeforeVat + item.vatAmount) - totalCheck) < 0.05 && Math.abs(item.amountBeforeVat - item.amount) < 0.05) {
       document.getElementById('expVatType').value = 'EXCLUSIVE';
     } else {
       document.getElementById('expVatType').value = 'INCLUSIVE';
@@ -533,7 +607,6 @@ function editExpenseRecord(id) {
 
   document.getElementById('btnSaveExpense').innerHTML = `<i class="bi bi-pencil-square me-1"></i> อัปเดตข้อมูลค่าใช้จ่าย`;
 
-  // 🟢 สั่งเปิด Modal Popup เพื่อแก้ไขรายการ
   openEditExpenseModal();
 }
 
@@ -541,9 +614,12 @@ function editExpenseRecord(id) {
 async function confirmDeleteExpense(id) {
   if (typeof Swal === 'undefined') return;
 
+  const targetItem = rawExpenseData.find(x => String(x.id) === String(id)) || null;
+  const targetExpNo = targetItem ? (targetItem.expenseNo || id) : id;
+
   const result = await Swal.fire({
     title: 'ยืนยันการลบ?',
-    text: 'เมื่อลบแล้วจะไม่สามารถคืนค่ารายการนี้ได้',
+    text: `เมื่อลบรายการ ${targetExpNo} แล้วจะไม่สามารถคืนค่ารายการนี้ได้`,
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#d33',
@@ -555,15 +631,52 @@ async function confirmDeleteExpense(id) {
   if (result.isConfirmed) {
     Swal.fire({ title: 'กำลังลบ...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     try {
-      // เรียกใช้ฟังก์ชันลบจริงใน firestore.js
       const res = await deleteExpenseRecord(id);
       if (res && res.success) {
+        // 📝 บันทึก Log การลบค่าใช้จ่าย พร้อมสำเนาข้อมูลเดิมก่อนถูกลบ
+        if (typeof writeActivityLog === 'function') {
+          const delAmount = targetItem ? Number(targetItem.totalWithVat || targetItem.amount || 0) : 0;
+          await writeActivityLog({
+            module: 'EXPENSE',
+            functionName: 'confirmDeleteExpense',
+            action: 'DELETE_EXPENSE',
+            docId: id,
+            refNo: targetExpNo,
+            summary: targetItem
+              ? `ลบรายการค่าใช้จ่าย ${targetExpNo} | หมวด: ${targetItem.category || '-'} | ผู้รับเงิน: ${targetItem.payeeName || '-'} | ยอด ${delAmount.toLocaleString('th-TH')} บาท`
+              : `ลบรายการค่าใช้จ่าย ID: ${id}`,
+            beforeData: targetItem
+          });
+        }
+
         Swal.fire('สำเร็จ', 'ลบรายการเรียบร้อยแล้ว', 'success');
         loadExpenseData();
       } else {
+        if (typeof writeActivityLog === 'function') {
+          await writeActivityLog({
+            module: 'EXPENSE',
+            functionName: 'confirmDeleteExpense',
+            action: 'ERROR_DELETE_EXPENSE',
+            docId: id,
+            refNo: targetExpNo,
+            summary: `ลบรายการค่าใช้จ่าย ${targetExpNo} ไม่สำเร็จ: ${res ? res.message : 'ไม่ทราบสาเหตุ'}`,
+            beforeData: targetItem
+          });
+        }
         Swal.fire('ข้อผิดพลาด', res ? res.message : 'ไม่สามารถลบได้', 'error');
       }
     } catch (err) {
+      if (typeof writeActivityLog === 'function') {
+        await writeActivityLog({
+          module: 'EXPENSE',
+          functionName: 'confirmDeleteExpense',
+          action: 'ERROR_DELETE_EXPENSE',
+          docId: id,
+          refNo: targetExpNo,
+          summary: `เกิดข้อผิดพลาดระบบตอนลบค่าใช้จ่าย ${targetExpNo}: ${err.message || err}`,
+          beforeData: targetItem
+        });
+      }
       Swal.fire('เกิดข้อผิดพลาดจาก Server', err.toString(), 'error');
     }
   }
@@ -572,9 +685,7 @@ async function confirmDeleteExpense(id) {
 // ==================== MODALS & PAY RECORDS ====================
 function openAddPayRecordModal() {
   document.getElementById('addPayRecordForm').reset();
-  if (!addPayRecordModalInstance) {
-    addPayRecordModalInstance = new bootstrap.Modal(document.getElementById('addPayRecordModal'));
-  }
+  addPayRecordModalInstance = bootstrap.Modal.getOrCreateInstance(document.getElementById('addPayRecordModal'));
   addPayRecordModalInstance.show();
 }
 
@@ -589,6 +700,19 @@ async function handleSavePayRecord(e) {
   try {
     const res = await savePayRecord({ name: nameVal });
     if (res && res.success) {
+      // 📝 บันทึก Log เพิ่มหมวดหมู่รายการค่าใช้จ่ายใหม่
+      if (typeof writeActivityLog === 'function') {
+        await writeActivityLog({
+          module: 'EXPENSE',
+          functionName: 'handleSavePayRecord',
+          action: 'CREATE_PAY_CATEGORY',
+          docId: res.id || '',
+          refNo: nameVal,
+          summary: `เพิ่มหมวดหมู่รายการจ่ายใหม่: ${nameVal}`,
+          afterData: { name: nameVal }
+        });
+      }
+
       if (addPayRecordModalInstance) addPayRecordModalInstance.hide();
       if (typeof Swal !== 'undefined') {
         Swal.fire({
