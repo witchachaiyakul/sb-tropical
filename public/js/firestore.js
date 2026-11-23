@@ -12,6 +12,12 @@ if (!firebase.apps.length) {
 
 const db = firebase.firestore();
 
+db.settings({
+  experimentalAutoDetectLongPolling: false,
+  experimentalForceLongPolling: true,
+  merge: true
+});
+
 // ==================== 1. AUTH SYSTEM ====================
 async function checkLogin(username, password) {
   try {
@@ -178,7 +184,20 @@ function parseBillPeriod(dateStr) { return parseDocPeriod(dateStr, 'SBBS'); }
 async function getNextSaleNo(dateStr) {
   try {
     const target = parseDocPeriod(dateStr, 'SB');
-    const trackerDoc = await db.collection('sales_no').doc(target.docIdMMYYYY).get();
+    let trackerDoc;
+
+    try {
+      trackerDoc = await db.collection('sales_no').doc(target.docIdMMYYYY).get();
+    } catch (netErr) {
+      // หากเกิด client is offline ให้กระตุ้นการเชื่อมต่อใหม่แล้วลองอีกครั้ง
+      if (String(netErr.message).includes('offline')) {
+        await db.enableNetwork();
+        trackerDoc = await db.collection('sales_no').doc(target.docIdMMYYYY).get();
+      } else {
+        throw netErr;
+      }
+    }
+
     let lastNumber = 0;
 
     if (trackerDoc.exists) {
@@ -208,7 +227,7 @@ async function getNextSaleNo(dateStr) {
     };
   } catch (err) {
     console.error("❌ Error in getNextSaleNo:", err);
-    return { success: false, message: err.message };
+    return { success: false, message: 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้ กรุณาตรวจสอบอินเทอร์เน็ต (' + err.message + ')' };
   }
 }
 
@@ -368,25 +387,52 @@ async function saveSaleRecord(data) {
   }
 }
 
-async function getSalesRecordsRange(startDateStr, endDateStr, limitCount = 3000) {
+async function getSalesRecordsRange(startDateStr, endDateStr) {
   try {
-    const startFormatted = startDateStr ? startDateStr.replace(/-/g, "/") : "";
-    const endFormatted = endDateStr ? endDateStr.replace(/-/g, "/") : "";
+    // ฟังก์ชันช่วยแปลงวันที่ทุกรูปแบบ (YYYY-MM-DD, DD/MM/YYYY, พ.ศ., Timestamp) เป็น YYYY/MM/DD ค.ศ.
+    const normalizeDate = (val) => {
+      if (!val) return "";
+      if (typeof val.toDate === 'function') {
+        const d = val.toDate();
+        return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+      }
+      const str = String(val).trim().split('T')[0].split(' ')[0];
+      const parts = str.split(/[\/\-\.]/);
+      if (parts.length === 3) {
+        let y, m, d;
+        if (parts[0].length === 4) {
+          y = parseInt(parts[0], 10);
+          m = parts[1].padStart(2, '0');
+          d = parts[2].padStart(2, '0');
+        } else {
+          d = parts[0].padStart(2, '0');
+          m = parts[1].padStart(2, '0');
+          y = parseInt(parts[2], 10);
+        }
+        if (y > 2400) y -= 543;
+        return `${y}/${m}/${d}`;
+      }
+      return str;
+    };
 
-    let query = db.collection('sales_records');
-    if (startFormatted) query = query.where('date', '>=', startFormatted);
-    if (endFormatted) query = query.where('date', '<=', endFormatted);
+    const startFormatted = normalizeDate(startDateStr);
+    const endFormatted = normalizeDate(endDateStr);
 
-    const snapshot = await query.limit(limitCount).get();
+    const snapshot = await db.collection('sales_records').get();
     const records = [];
 
     snapshot.forEach(doc => {
       const f = doc.data();
+      const stdDate = normalizeDate(f.date);
+
+      if (startFormatted && stdDate < startFormatted) return;
+      if (endFormatted && stdDate > endFormatted) return;
+
       records.push({
         id: doc.id,
         saleNo: f.saleNo || '',
         receiptNo: f.receiptNo || '',
-        date: f.date || '',
+        date: stdDate || f.date || '',
         buyerName: f.buyerName || '',
         itemType: f.itemType || 'น้ำมัน',
         itemName: f.itemName || '',

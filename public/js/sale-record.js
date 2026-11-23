@@ -268,6 +268,9 @@ async function updateSaleNoPreview() {
 
   try {
     const res = await getNextSaleNo(dateForDB);
+    // ✅ เช็กซ้ำอีกครั้งหลังดึงข้อมูลเสร็จ เผื่อระหว่างรอเน็ตผู้ใช้สลับไปเปิดหน้าต่างแก้ไข
+    if (document.getElementById('editDocId')?.value) return;
+
     if (res && res.success && res.saleNo) {
       const saleNoEl = document.getElementById('saleNo');
       if (saleNoEl) saleNoEl.value = res.saleNo;
