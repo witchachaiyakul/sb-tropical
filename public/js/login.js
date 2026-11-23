@@ -78,6 +78,9 @@ function updateUserHeaderUI() {
 async function handleLoginSubmit(e) {
   e.preventDefault();
 
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  if (submitBtn && submitBtn.disabled) return;
+
   const userVal = document.getElementById('loginUsername').value.trim();
   const passVal = document.getElementById('loginPassword').value.trim();
 
@@ -86,13 +89,13 @@ async function handleLoginSubmit(e) {
     return;
   }
 
+  if (submitBtn) submitBtn.disabled = true;
   if (typeof Swal !== 'undefined') {
     Swal.fire({ title: 'กำลังตรวจสอบ...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
   }
 
   try {
     const res = await checkLogin(userVal, passVal);
-
     if (typeof Swal !== 'undefined') Swal.close();
 
     if (res && res.success) {
@@ -101,14 +104,32 @@ async function handleLoginSubmit(e) {
       sessionStorage.setItem('sbTropicalSessionToken', res.token || 'logged_in_token');
       sessionStorage.setItem('sbTropicalUser', JSON.stringify(res.user));
 
-      // ย้ายไปหน้า main.html ทันที
+      // ✅ บันทึกประวัติการเข้าสู่ระบบลง activity_logs ทันที
+      if (typeof writeActivityLog === 'function') {
+        await writeActivityLog({
+          module: 'AUTH',
+          functionName: 'handleLoginSubmit',
+          action: 'LOGIN',
+          docId: res.user.username,
+          refNo: res.user.username,
+          summary: `เข้าสู่ระบบสำเร็จ: ${res.user.name || res.user.username} (${res.user.role || 'staff'})`,
+          afterData: {
+            username: res.user.username,
+            name: res.user.name,
+            role: res.user.role
+          }
+        });
+      }
+
       window.location.href = 'main.html';
     } else {
+      if (submitBtn) submitBtn.disabled = false;
       if (typeof Swal !== 'undefined') {
         Swal.fire('เข้าสู่ระบบไม่สำเร็จ', res ? res.message : 'ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง', 'error');
       }
     }
   } catch (err) {
+    if (submitBtn) submitBtn.disabled = false;
     if (typeof Swal !== 'undefined') {
       Swal.fire('เกิดข้อผิดพลาดจากระบบ', err.message || err.toString(), 'error');
     }

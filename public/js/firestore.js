@@ -600,82 +600,84 @@ function getFuelDocId(itemName) {
 
 // 1. ดึงข้อมูลสต็อกน้ำมันสำหรับแสดงการ์ดสรุปผล
 async function getOilStockData(targetDate) {
+  const STOCK_START_DATE = "2026/10/20"; // 👈 กำหนดวันเริ่มต้นนับสต็อก (ห้ามคำนวณก่อนหน้านี้)
+  const zeroSummary = {
+    initialStock: 0,
+    totalIn: 0,
+    totalOut: 0,
+    cashSales: 0,
+    totalSales: 0,
+    currentStock: 0
+  };
+
   try {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const searchDate = targetDate ? toStandardYYYYMMDD(targetDate) : toStandardYYYYMMDD(todayStr); // YYYY/MM/DD
+    const now = new Date();
+    const localTodayStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
+    const searchDate = targetDate ? toStandardYYYYMMDD(targetDate) : localTodayStr; // YYYY/MM/DD
 
     const parts = searchDate.split('/');
     if (parts.length < 3) return { success: false, message: "รูปแบบวันที่ไม่ถูกต้อง" };
 
-    const targetYear = parts[0];
-    const targetMonth = parts[1];
-    const targetDay = parts[2];
+    // 🛑 ตรวจสอบหากเลือกวันที่ก่อน 2026/10/20 ให้แจ้งเตือนและคืนค่า 0 ทั้งหมด
+    if (searchDate < STOCK_START_DATE) {
+      return {
+        success: false,
+        code: "BEFORE_START_DATE",
+        message: "นับ stock ตั้งแต่วันที่ 20/10/2569 (2026/10/20)",
+        stock95: { ...zeroSummary },
+        stockDiesel: { ...zeroSummary }
+      };
+    }
 
-    const docIdDate = `${targetYear}-${targetMonth}-${targetDay}`;
-    const targetMonthStr = `${targetYear}/${targetMonth}`;
-    const monthStartDate = `${targetYear}/${targetMonth}/01`;
+    const docIdDate = `${parts[0]}-${parts[1]}-${parts[2]}`;
+    const normStr = (val) => String(val || '').trim().replace(/-/g, '/');
 
     async function getSummaryForFuelType(fuelType) {
-      // 1.1 อ่านค่าสต็อกตั้งต้นจาก oil_stock/{fuelType}
-      const parentSnap = await db.collection('oil_stock').doc(fuelType).get();
-      let initialStock = 0;
-      if (parentSnap.exists) {
-        initialStock = Number(parentSnap.data().initialStock || 0);
-      }
+      const fuelRef = db.collection('oil_stock').doc(fuelType);
 
-      // 1.2 ดึงยอดนำเข้า และ ยอดขายออก ของวันที่กรองข้อมูล
-      let dayIn = 0, dayOut = 0, dayCashSales = 0, dayTotalSales = 0; // 👈 ประกาศตัวแปร dayTotalSales
+      const [parentSnap, dayInSnap, dayOutSnap, impDaySnap, expDaySnap] = await Promise.all([
+        fuelRef.get(),
+        fuelRef.collection('imports_daily_summaries').doc(docIdDate).get(),
+        fuelRef.collection('daily_summaries').doc(docIdDate).get(),
+        fuelRef.collection('imports_daily_summaries').get(),
+        fuelRef.collection('daily_summaries').get()
+      ]);
 
-      const dayInSnap = await db.collection('oil_stock').doc(fuelType).collection('imports_daily_summaries').doc(docIdDate).get();
-      if (dayInSnap.exists) {
-        dayIn = Number(dayInSnap.data().totalIn || 0);
-      }
+      // 1. สต็อกตั้งต้น ณ วันที่ 2026/10/20
+      const initialStock = parentSnap.exists ? Number(parentSnap.data().initialStock || 0) : 0;
 
-      const dayOutSnap = await db.collection('oil_stock').doc(fuelType).collection('daily_summaries').doc(docIdDate).get();
+      // 2. ยอดนำเข้า และ ยอดขายออก เฉพาะวันที่เลือก
+      const dayIn = dayInSnap.exists ? Number(dayInSnap.data().totalIn || 0) : 0;
+
+      let dayOut = 0, dayCashSales = 0, dayTotalSales = 0;
       if (dayOutSnap.exists) {
         const dData = dayOutSnap.data();
         dayOut = Number(dData.totalOut || 0);
         dayCashSales = Number(dData.cashSales || 0);
-        dayTotalSales = Number(dData.totalSales || 0); // 👈 ดึงยอดขายรายวันจาก Firestore
+        dayTotalSales = Number(dData.totalSales || 0);
       }
 
-      // 1.3 คำนวณยอดนำเข้าสะสม (Cumulative In) ถึงวันที่เลือก
+      // 3. ยอดนำเข้าสะสม: นับเฉพาะตั้งแต่ 2026/10/20 ถึงวันที่เลือกเท่านั้น
       let cumulativeIn = 0;
-      const impMonthSnap = await db.collection('oil_stock').doc(fuelType).collection('imports_monthly_summaries').get();
-      impMonthSnap.forEach(doc => {
-        const mData = doc.data();
-        if (mData.month && mData.month < targetMonthStr) {
-          cumulativeIn += Number(mData.totalIn || 0);
-        }
-      });
-
-      const impDaySnap = await db.collection('oil_stock').doc(fuelType).collection('imports_daily_summaries').get();
       impDaySnap.forEach(doc => {
         const dData = doc.data();
-        if (dData.date && dData.date >= monthStartDate && dData.date <= searchDate) {
+        const dStr = normStr(dData.date || doc.id);
+        if (dStr && dStr >= STOCK_START_DATE && dStr <= searchDate) {
           cumulativeIn += Number(dData.totalIn || 0);
         }
       });
 
-      // 1.4 คำนวณยอดขายออกสะสม (Cumulative Out) ถึงวันที่เลือก
+      // 4. ยอดขายออกสะสม: นับเฉพาะตั้งแต่ 2026/10/20 ถึงวันที่เลือกเท่านั้น
       let cumulativeOut = 0;
-      const expMonthSnap = await db.collection('oil_stock').doc(fuelType).collection('monthly_summaries').get();
-      expMonthSnap.forEach(doc => {
-        const mData = doc.data();
-        if (mData.month && mData.month < targetMonthStr) {
-          cumulativeOut += Number(mData.totalOut || 0);
-        }
-      });
-
-      const expDaySnap = await db.collection('oil_stock').doc(fuelType).collection('daily_summaries').get();
       expDaySnap.forEach(doc => {
         const dData = doc.data();
-        if (dData.date && dData.date >= monthStartDate && dData.date <= searchDate) {
+        const dStr = normStr(dData.date || doc.id);
+        if (dStr && dStr >= STOCK_START_DATE && dStr <= searchDate) {
           cumulativeOut += Number(dData.totalOut || 0);
         }
       });
 
-      // 1.5 ยอดคงเหลือสะสม ณ สิ้นวัน
+      // 5. ยอดคงเหลือ ณ สิ้นวัน
       const currentStock = initialStock + cumulativeIn - cumulativeOut;
 
       return {
@@ -688,8 +690,10 @@ async function getOilStockData(targetDate) {
       };
     }
 
-    const stock95Result = await getSummaryForFuelType('95');
-    const stockDieselResult = await getSummaryForFuelType('diesel');
+    const [stock95Result, stockDieselResult] = await Promise.all([
+      getSummaryForFuelType('95'),
+      getSummaryForFuelType('diesel')
+    ]);
 
     return {
       success: true,
@@ -820,7 +824,7 @@ async function reverseStockOnFuelSale(saleRecord) {
     const docId = getFuelDocId(saleRecord.itemName || saleRecord.itemType);
     if (!docId) return;
 
-    const cleanSaleNo = safeDocId(saleRecord.saleNo);
+    const cleanSaleNo = safeDocId(saleRecord.saleNo || saleRecord.docId || '');
     const exportDocRef = db.collection('oil_stock').doc(docId).collection('exports').doc(cleanSaleNo);
     const oldSnap = await exportDocRef.get();
 
@@ -2718,7 +2722,8 @@ function getCurrentActor() {
         role: window.currentUser.role || 'staff'
       };
     }
-    const raw = localStorage.getItem('user') || sessionStorage.getItem('user') || localStorage.getItem('currentUser');
+    // ✅ ดึงจาก 'sbTropicalUser' ที่ login.js บันทึกไว้เป็นอันดับแรก
+    const raw = sessionStorage.getItem('sbTropicalUser') || localStorage.getItem('user') || sessionStorage.getItem('user') || localStorage.getItem('currentUser');
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && (parsed.username || parsed.name)) {
