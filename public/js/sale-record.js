@@ -284,6 +284,7 @@ function resetForm() {
   if (document.getElementById('editDocId')) document.getElementById('editDocId').value = '';
 
   if (fp) fp.setDate(new Date(), false);
+  updateDisplayToBE(fp);
 
   if (document.getElementById('fuelItemName')) document.getElementById('fuelItemName').value = '95';
   if (document.getElementById('itemTypeFuel')) document.getElementById('itemTypeFuel').checked = true;
@@ -464,8 +465,10 @@ async function handleSalesSubmit(e) {
 async function loadSalesData() {
   initMonthYearFilters();
 
+  const startDEl = document.getElementById('filterStartDay');
   const startMEl = document.getElementById('filterStartMonth');
   const startYEl = document.getElementById('filterStartYear');
+  const endDEl = document.getElementById('filterEndDay');
   const endMEl = document.getElementById('filterEndMonth');
   const endYEl = document.getElementById('filterEndYear');
 
@@ -473,12 +476,16 @@ async function loadSalesData() {
 
   const startM = parseInt(startMEl.value, 10);
   const startY = parseInt(startYEl.value, 10) - 543;
+  const maxStartDays = new Date(startY, startM, 0).getDate();
+  const startD = startDEl ? Math.min(parseInt(startDEl.value, 10) || 1, maxStartDays) : 1;
+
   const endM = parseInt(endMEl.value, 10);
   const endY = parseInt(endYEl.value, 10) - 543;
+  const maxEndDays = new Date(endY, endM, 0).getDate();
+  const endD = endDEl ? Math.min(parseInt(endDEl.value, 10) || maxEndDays, maxEndDays) : maxEndDays;
 
-  const startDateStr = `${startY}/${String(startM).padStart(2, '0')}/01`;
-  const lastDayOfEndMonth = new Date(endY, endM, 0).getDate();
-  const endDateStr = `${endY}/${String(endM).padStart(2, '0')}/${String(lastDayOfEndMonth).padStart(2, '0')}`;
+  const startDateStr = `${startY}/${String(startM).padStart(2, '0')}/${String(startD).padStart(2, '0')}`;
+  const endDateStr = `${endY}/${String(endM).padStart(2, '0')}/${String(endD).padStart(2, '0')}`;
 
   if (typeof Swal !== 'undefined') Swal.fire({ title: 'กำลังโหลดข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
@@ -511,6 +518,49 @@ function initMonthYearFilters() {
   if (typeof setupMonthYearDropdowns === 'function') {
     setupMonthYearDropdowns('filterStartMonth', 'filterStartYear', 'filterEndMonth', 'filterEndYear');
   }
+  // ✅ สร้างตัวเลือกวันที่ 1-30/31 เฉพาะครั้งแรกที่โหลดหน้า (ไม่รีเซ็ตทับค่าที่ผู้ใช้เลือกไว้ตอนกดค้นหา)
+  const startDEl = document.getElementById('filterStartDay');
+  if (startDEl && startDEl.options.length === 0) {
+    updateFilterDayOptions(true);
+  }
+}
+
+function updateFilterDayOptions(isInitial = false) {
+  const startDEl = document.getElementById('filterStartDay');
+  const startMEl = document.getElementById('filterStartMonth');
+  const startYEl = document.getElementById('filterStartYear');
+
+  const endDEl = document.getElementById('filterEndDay');
+  const endMEl = document.getElementById('filterEndMonth');
+  const endYEl = document.getElementById('filterEndYear');
+
+  if (!startDEl || !startMEl || !startYEl || !endDEl || !endMEl || !endYEl) return;
+
+  // 1. คำนวณจำนวนวันสูงสุดของเดือนเริ่มต้น
+  const sMonth = parseInt(startMEl.value, 10) || (new Date().getMonth() + 1);
+  const sYearAD = (parseInt(startYEl.value, 10) || (new Date().getFullYear() + 543)) - 543;
+  const maxStartDays = new Date(sYearAD, sMonth, 0).getDate();
+  const prevStartDay = parseInt(startDEl.value, 10) || 1;
+
+  let startDayHtml = '';
+  for (let d = 1; d <= maxStartDays; d++) {
+    startDayHtml += `<option value="${d}">${d}</option>`;
+  }
+  startDEl.innerHTML = startDayHtml;
+  startDEl.value = isInitial ? '1' : String(Math.min(prevStartDay, maxStartDays));
+
+  // 2. คำนวณจำนวนวันสูงสุดของเดือนสิ้นสุด
+  const eMonth = parseInt(endMEl.value, 10) || (new Date().getMonth() + 1);
+  const eYearAD = (parseInt(endYEl.value, 10) || (new Date().getFullYear() + 543)) - 543;
+  const maxEndDays = new Date(eYearAD, eMonth, 0).getDate();
+  const prevEndDay = parseInt(endDEl.value, 10) || maxEndDays;
+
+  let endDayHtml = '';
+  for (let d = 1; d <= maxEndDays; d++) {
+    endDayHtml += `<option value="${d}">${d}</option>`;
+  }
+  endDEl.innerHTML = endDayHtml;
+  endDEl.value = isInitial ? String(maxEndDays) : String(Math.min(prevEndDay, maxEndDays));
 }
 
 function loadSalesDataByMonthRange() {
@@ -657,6 +707,7 @@ function editRecord(id) {
       if (typeof fp !== 'undefined' && fp) {
         // ✅ เปลี่ยนจาก true เป็น false เพื่อไม่ให้กระตุ้น onChange ตอนโหลดข้อมูลเดิม
         fp.setDate(new Date(y, m, d), false);
+        updateDisplayToBE(fp);
       } else {
         document.getElementById('saleDate').value = `${String(d).padStart(2, '0')}/${String(m + 1).padStart(2, '0')}/${y + 543}`;
       }
